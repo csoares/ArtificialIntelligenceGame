@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desafio das Emoções - UFP</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="lib/face-api.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Registration Screen -->
+        <div id="registration-screen" class="screen active">
+            <h1>Desafio das Emoções + IA</h1>
+            <p>Bem-vindo! Descobre o mundo da Inteligência Artificial e Visão Computacional!</p>
+            <form id="registration-form">
+                <div class="form-group">
+                    <label for="firstName">Primeiro Nome:</label>
+                    <input type="text" id="firstName" name="firstName" required>
+                </div>
+                <div class="form-group">
+                    <label for="lastName">Último Nome:</label>
+                    <input type="text" id="lastName" name="lastName" required>
+                </div>
+                <div class="form-group">
+                    <label for="school">Escola:</label>
+                    <input type="text" id="school" name="school" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Começar Desafio</button>
+            </form>
+            <div class="export-section">
+                <button id="export-csv-btn" class="btn btn-secondary" onclick="exportCSV()">Exportar Dados CSV</button>
+            </div>
+        </div>
+
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="screen">
+            <h1>A Carregar...</h1>
+            <p>Por favor aguarda enquanto carregamos os modelos de deteção de emoções.</p>
+            <div class="loading-spinner"></div>
+            <p id="loading-status">A inicializar...</p>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <div class="game-header">
+                <h2>Desafio das Emoções + IA</h2>
+                <div class="game-info">
+                    <span id="current-round">Ronda: 1/22</span>
+                    <span id="current-score">Pontuação: 0</span>
+                </div>
+            </div>
+
+            <!-- Camera Container (for emotion detection) -->
+            <div id="video-container" class="video-container">
+                <video id="video" autoplay muted></video>
+                <canvas id="overlay"></canvas>
+            </div>
+
+            <!-- Challenge Box (for emotions) -->
+            <div id="challenge-box" class="challenge-box">
+                <h3 id="challenge-title">Mostra esta emoção:</h3>
+                <div id="target-emotion" class="target-emotion">Feliz</div>
+                <div id="detected-emotion" class="detected-emotion">A detetar...</div>
+                <div id="timer" class="timer">Tempo: 15s</div>
+                <div id="educational-note" class="educational-note">A IA está a analisar 68 pontos no teu rosto!</div>
+            </div>
+
+            <!-- Quiz Container (for questions) -->
+            <div id="quiz-container" class="quiz-container" style="display: none;">
+                <h3 id="quiz-question" class="quiz-question">Pergunta aparece aqui</h3>
+
+                <!-- Visual Container (for images) -->
+                <div id="visual-container" class="visual-container" style="display: none;"></div>
+
+                <!-- Code Block (for code questions) -->
+                <div id="code-block" class="code-block" style="display: none;">
+                    <pre id="code-content"></pre>
+                </div>
+
+                <!-- Quiz Options -->
+                <div id="quiz-options" class="quiz-options"></div>
+
+                <!-- Quiz Explanation -->
+                <div id="quiz-explanation" class="quiz-explanation" style="display: none;"></div>
+
+                <!-- Timer and Educational Note -->
+                <div id="timer" class="timer">Tempo: 30s</div>
+                <div id="educational-note" class="educational-note"></div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="progress-bar">
+                <div id="progress" class="progress-fill"></div>
+            </div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="results-screen" class="screen">
+            <h1>Desafio Completo!</h1>
+            <div class="results-box">
+                <h2 id="student-name"></h2>
+                <p id="student-school"></p>
+                <div class="final-score">
+                    <span class="score-label">Pontuação Final:</span>
+                    <span id="final-score" class="score-value">0</span>
+                    <span class="score-max">/ 5</span>
+                </div>
+                <div id="score-message" class="score-message"></div>
+            </div>
+            <div class="results-details">
+                <h3>Resultados das Rondas:</h3>
+                <div id="round-results"></div>
+            </div>
+            <button id="play-again-btn" class="btn btn-primary">Jogar Novamente</button>
+            <p class="save-notice">Os teus resultados foram guardados!</p>
+            <p class="ufp-promo">🎓 Gostaste? Explora Engenharia Informática na UFP!</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
