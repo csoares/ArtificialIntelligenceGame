@@ -51,7 +51,7 @@ const EMOTION_ROUND_DURATION = 15; // seconds per emotion round
 const QUIZ_ROUND_DURATION = 30; // seconds per quiz round
 const CODE_ROUND_DURATION = 45; // seconds per code round
 const DETECTION_THRESHOLD = 0.6; // confidence threshold for emotion detection
-const SUCCESS_DURATION = 2000; // milliseconds to hold correct emotion
+const SUCCESS_DURATION = 1500; // milliseconds to hold correct emotion
 
 // ===================================
 // QUIZ QUESTIONS DATABASE
@@ -287,6 +287,7 @@ async function initializeGame() {
         const MODEL_URL = './models';
 
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
 
         updateLoadingStatus('A iniciar câmara...');
@@ -418,7 +419,11 @@ function startEmotionDetection(targetEmotion) {
         if (!gameState.isPlaying || roundCompleted) return;
 
         const detections = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
+                inputSize: 224,
+                scoreThreshold: 0.5
+            }))
+            .withFaceLandmarks()
             .withFaceExpressions();
 
         const ctx = canvas.getContext('2d');
@@ -426,7 +431,82 @@ function startEmotionDetection(targetEmotion) {
 
         if (detections) {
             const resizedDetections = faceapi.resizeResults(detections, displaySize);
-            faceapi.draw.drawDetections(canvas, resizedDetections);
+
+            // Calculate tight bounding box from face landmarks
+            const landmarks = resizedDetections.landmarks.positions;
+
+            // Use specific landmark ranges for better face framing
+            // Landmarks: 0-16=jaw, 17-21=left eyebrow, 22-26=right eyebrow, 27-35=nose, 48-67=mouth
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+            // Use inner jaw points (2-14) for tighter width
+            for (let i = 2; i <= 14; i++) {
+                if (landmarks[i]) {
+                    minX = Math.min(minX, landmarks[i].x);
+                    maxX = Math.max(maxX, landmarks[i].x);
+                }
+            }
+
+            // Top: eyebrow top (landmarks 17-26)
+            for (let i = 17; i <= 26; i++) {
+                if (landmarks[i]) {
+                    minY = Math.min(minY, landmarks[i].y);
+                }
+            }
+
+            // Bottom: chin center (landmark 8 only)
+            if (landmarks[8]) {
+                maxY = landmarks[8].y;
+            }
+
+            // Add minimal space for forehead
+            const faceWidth = maxX - minX;
+            const foreheadSpace = faceWidth * 0.12;
+
+            minY -= foreheadSpace;
+
+            // Add very small symmetric padding
+            const padding = 8;
+            const box = {
+                x: minX - padding,
+                y: minY - padding,
+                width: (maxX - minX) + (padding * 2),
+                height: (maxY - minY) + (padding * 2)
+            };
+
+            // Draw minimal corner markers
+            const cornerLength = Math.min(box.width, box.height) * 0.12;
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+
+            // Top-left corner
+            ctx.beginPath();
+            ctx.moveTo(box.x, box.y + cornerLength);
+            ctx.lineTo(box.x, box.y);
+            ctx.lineTo(box.x + cornerLength, box.y);
+            ctx.stroke();
+
+            // Top-right corner
+            ctx.beginPath();
+            ctx.moveTo(box.x + box.width - cornerLength, box.y);
+            ctx.lineTo(box.x + box.width, box.y);
+            ctx.lineTo(box.x + box.width, box.y + cornerLength);
+            ctx.stroke();
+
+            // Bottom-left corner
+            ctx.beginPath();
+            ctx.moveTo(box.x, box.y + box.height - cornerLength);
+            ctx.lineTo(box.x, box.y + box.height);
+            ctx.lineTo(box.x + cornerLength, box.y + box.height);
+            ctx.stroke();
+
+            // Bottom-right corner
+            ctx.beginPath();
+            ctx.moveTo(box.x + box.width - cornerLength, box.y + box.height);
+            ctx.lineTo(box.x + box.width, box.y + box.height);
+            ctx.lineTo(box.x + box.width, box.y + box.height - cornerLength);
+            ctx.stroke();
 
             const expressions = detections.expressions;
             const dominantEmotion = getDominantEmotion(expressions);
