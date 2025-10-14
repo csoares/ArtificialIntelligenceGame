@@ -19,7 +19,6 @@ const gameState = {
     roundTimer: null,
     timeRemaining: 15,
     usedEmotions: [],
-    lastEmotion: null,
     currentQuestionType: null
 };
 
@@ -434,83 +433,68 @@ function startEmotionDetection(targetEmotion) {
 
             // Calculate tight bounding box from face landmarks
             const landmarks = resizedDetections.landmarks.positions;
+            const box = calculateFaceBoundingBox(landmarks);
 
-            // Use specific landmark ranges for better face framing
-            // Landmarks: 0-16=jaw, 17-21=left eyebrow, 22-26=right eyebrow, 27-35=nose, 48-67=mouth
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-            // Use inner jaw points (2-14) for tighter width
-            for (let i = 2; i <= 14; i++) {
-                if (landmarks[i]) {
-                    minX = Math.min(minX, landmarks[i].x);
-                    maxX = Math.max(maxX, landmarks[i].x);
-                }
-            }
-
-            // Top: eyebrow top (landmarks 17-26)
-            for (let i = 17; i <= 26; i++) {
-                if (landmarks[i]) {
-                    minY = Math.min(minY, landmarks[i].y);
-                }
-            }
-
-            // Bottom: chin center (landmark 8 only)
-            if (landmarks[8]) {
-                maxY = landmarks[8].y;
-            }
-
-            // Add minimal space for forehead
-            const faceWidth = maxX - minX;
-            const foreheadSpace = faceWidth * 0.12;
-
-            minY -= foreheadSpace;
-
-            // Add very small symmetric padding
-            const padding = 8;
-            const box = {
-                x: minX - padding,
-                y: minY - padding,
-                width: (maxX - minX) + (padding * 2),
-                height: (maxY - minY) + (padding * 2)
-            };
-
-            // Draw minimal corner markers
-            const cornerLength = Math.min(box.width, box.height) * 0.12;
-            ctx.strokeStyle = '#00ff88';
-            ctx.lineWidth = 2;
-            ctx.lineCap = 'round';
-
-            // Top-left corner
-            ctx.beginPath();
-            ctx.moveTo(box.x, box.y + cornerLength);
-            ctx.lineTo(box.x, box.y);
-            ctx.lineTo(box.x + cornerLength, box.y);
-            ctx.stroke();
-
-            // Top-right corner
-            ctx.beginPath();
-            ctx.moveTo(box.x + box.width - cornerLength, box.y);
-            ctx.lineTo(box.x + box.width, box.y);
-            ctx.lineTo(box.x + box.width, box.y + cornerLength);
-            ctx.stroke();
-
-            // Bottom-left corner
-            ctx.beginPath();
-            ctx.moveTo(box.x, box.y + box.height - cornerLength);
-            ctx.lineTo(box.x, box.y + box.height);
-            ctx.lineTo(box.x + cornerLength, box.y + box.height);
-            ctx.stroke();
-
-            // Bottom-right corner
-            ctx.beginPath();
-            ctx.moveTo(box.x + box.width - cornerLength, box.y + box.height);
-            ctx.lineTo(box.x + box.width, box.y + box.height);
-            ctx.lineTo(box.x + box.width, box.y + box.height - cornerLength);
-            ctx.stroke();
-
+            // Determine box color based on emotion match
             const expressions = detections.expressions;
             const dominantEmotion = getDominantEmotion(expressions);
             const confidence = expressions[dominantEmotion];
+            const isCorrectEmotion = dominantEmotion === targetEmotion && confidence > DETECTION_THRESHOLD;
+
+            // Calculate progress if correct emotion
+            let progressRatio = 0;
+            if (isCorrectEmotion && correctEmotionStartTime !== null) {
+                const holdDuration = Date.now() - correctEmotionStartTime;
+                progressRatio = Math.min(holdDuration / SUCCESS_DURATION, 1);
+            }
+
+            // Draw minimal corner markers with color feedback
+            const cornerLength = Math.min(box.width, box.height) * 0.08;
+
+            // Color: green if correct, yellow if matching
+            if (progressRatio >= 1) {
+                ctx.strokeStyle = '#00ff00'; // Bright green when complete
+            } else if (isCorrectEmotion) {
+                ctx.strokeStyle = '#ffeb3b'; // Yellow when holding
+            } else {
+                ctx.strokeStyle = '#00ff88'; // Default green
+            }
+
+            ctx.lineWidth = isCorrectEmotion ? 3 : 2;
+            ctx.lineCap = 'round';
+
+            // Draw corner markers (consolidated)
+            const corners = [
+                { x: box.x, y: box.y, dx: 1, dy: 1 },                                    // Top-left
+                { x: box.x + box.width, y: box.y, dx: -1, dy: 1 },                       // Top-right
+                { x: box.x, y: box.y + box.height, dx: 1, dy: -1 },                      // Bottom-left
+                { x: box.x + box.width, y: box.y + box.height, dx: -1, dy: -1 }          // Bottom-right
+            ];
+
+            corners.forEach(corner => {
+                ctx.beginPath();
+                ctx.moveTo(corner.x, corner.y + corner.dy * cornerLength);
+                ctx.lineTo(corner.x, corner.y);
+                ctx.lineTo(corner.x + corner.dx * cornerLength, corner.y);
+                ctx.stroke();
+            });
+
+            // Draw progress bar if holding correct emotion
+            if (isCorrectEmotion && progressRatio > 0) {
+                const barHeight = 4;
+                const barY = box.y + box.height + 10;
+
+                // Background bar
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillRect(box.x, barY, box.width, barHeight);
+
+                // Progress bar
+                const gradient = ctx.createLinearGradient(box.x, 0, box.x + box.width, 0);
+                gradient.addColorStop(0, '#ffeb3b');
+                gradient.addColorStop(1, '#00ff00');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(box.x, barY, box.width * progressRatio, barHeight);
+            }
 
             document.getElementById('detected-emotion').textContent =
                 `Detectado: ${EMOTION_TRANSLATIONS[dominantEmotion]} (${Math.round(confidence * 100)}%)`;
@@ -534,6 +518,53 @@ function startEmotionDetection(targetEmotion) {
             correctEmotionStartTime = null;
         }
     }, 100);
+}
+
+function calculateFaceBoundingBox(landmarks) {
+    // Use eyes and mouth for tight box calculation
+    // Landmarks: 36-47=eyes, 48-67=mouth, 17-26=eyebrows
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    // Use eyes (36-47) and mouth (48-59) for width
+    for (let i = 36; i <= 47; i++) {
+        if (landmarks[i]) {
+            minX = Math.min(minX, landmarks[i].x);
+            maxX = Math.max(maxX, landmarks[i].x);
+        }
+    }
+    for (let i = 48; i <= 59; i++) {
+        if (landmarks[i]) {
+            minX = Math.min(minX, landmarks[i].x);
+            maxX = Math.max(maxX, landmarks[i].x);
+        }
+    }
+
+    // Top: eyebrow top (landmarks 17-26)
+    for (let i = 17; i <= 26; i++) {
+        if (landmarks[i]) {
+            minY = Math.min(minY, landmarks[i].y);
+        }
+    }
+
+    // Bottom: mouth bottom (landmarks 57-59)
+    for (let i = 57; i <= 59; i++) {
+        if (landmarks[i]) {
+            maxY = Math.max(maxY, landmarks[i].y);
+        }
+    }
+
+    // Add proportional padding for complete face
+    const faceWidth = maxX - minX;
+    const foreheadSpace = faceWidth * 0.15;
+    const chinSpace = faceWidth * 0.2;
+    const sideSpace = faceWidth * 0.15;
+
+    return {
+        x: minX - sideSpace,
+        y: minY - foreheadSpace,
+        width: (maxX - minX) + (sideSpace * 2),
+        height: (maxY - minY) + foreheadSpace + chinSpace
+    };
 }
 
 function getDominantEmotion(expressions) {
@@ -569,8 +600,8 @@ function startQuizRound(questionId) {
     // Update UI
     document.getElementById('challenge-title').textContent = 'Pergunta sobre IA:';
     document.getElementById('quiz-question').textContent = question.question;
-    document.getElementById('timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
-    document.getElementById('educational-note').textContent = question.educationalNote;
+    document.getElementById('quiz-timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
+    document.getElementById('quiz-educational-note').textContent = question.educationalNote;
 
     // Show code if code question
     if (question.code) {
@@ -688,11 +719,8 @@ function startGestureRound(questionId) {
     document.getElementById('challenge-title').textContent = 'Desafio de Gesto:';
     document.getElementById('target-emotion').textContent = question.gestureEmoji || '👍';
     document.getElementById('detected-emotion').textContent = question.question.replace('Faz um gesto de ', '').replace(' para a câmara!', '');
-    document.getElementById('timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
-    document.getElementById('educational-note').textContent = question.educationalNote;
-
-    // Store current gesture for detection
-    gameState.currentGesture = question.gestureType;
+    document.getElementById('quiz-timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
+    document.getElementById('quiz-educational-note').textContent = question.educationalNote;
 
     // Simplified gesture detection (motion detection)
     detectGesture();
@@ -881,7 +909,6 @@ async function saveResultToBackend(finalScore) {
         const result = await response.json();
 
         if (result.success) {
-            console.log('✓ Result saved to backend:', result.message);
             // Show success message on screen
             const saveNotice = document.querySelector('.save-notice');
             if (saveNotice) {
@@ -946,8 +973,4 @@ function hideGameElement(element) {
     } else if (element === 'quiz') {
         document.getElementById('quiz-container').style.display = 'none';
     }
-}
-
-function capitalizeFirst(str) {
-    return str.charAt(0).toUpperCase() + str.slice(1);
 }

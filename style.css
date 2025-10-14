@@ -484,14 +484,15 @@ body {
 }
 
 .educational-note {
-    background: rgba(45, 95, 63, 0.1);
-    border-left: 3px solid var(--ufp-green-primary);
-    padding: 10px 12px;
+    background: rgba(45, 95, 63, 0.25);
+    border-left: 4px solid var(--ufp-green-primary);
+    padding: 12px 15px;
     margin: 10px 0;
     border-radius: 5px;
-    font-size: 0.85em;
-    color: var(--ufp-gray-dark);
+    font-size: 0.9em;
+    color: #1a1a1a;
     font-style: italic;
+    font-weight: 500;
 }
 
 /* Responsive Design */
