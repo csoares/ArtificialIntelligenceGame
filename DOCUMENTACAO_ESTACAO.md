@@ -1,12 +1,11 @@
-# Documentação da Estação - Desafio das Emoções
+# Documentação da Estação
 
 ## 📋 Informações Gerais
 
 ### Nome da Estação
 **Desafio das Emoções com IA**
 
-### Nome Alternativo
-**Estação de Inteligência Artificial e Visão Computacional**
+
 
 ---
 
