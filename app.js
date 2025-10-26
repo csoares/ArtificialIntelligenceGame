@@ -11,7 +11,7 @@ const gameState = {
         school: ''
     },
     currentRound: 0,
-    totalRounds: 22,
+    totalRounds: 19,
     score: 0,
     roundResults: [],
     isPlaying: false,
@@ -174,33 +174,6 @@ const QUIZ_QUESTIONS = [
     },
     {
         id: 'creative2',
-        type: QUESTION_TYPES.GESTURE,
-        question: 'Faz um gesto de 👍 (polegar para cima) para a câmara!',
-        gestureType: 'thumbsup',
-        gestureEmoji: '👍',
-        explanation: 'A IA consegue detetar gestos das mãos!',
-        educationalNote: 'Hand pose detection é usado em realidade virtual e jogos!'
-    },
-    {
-        id: 'creative3',
-        type: QUESTION_TYPES.GESTURE,
-        question: 'Faz um gesto de ❤️ (coração com as mãos) para a câmara!',
-        gestureType: 'love',
-        gestureEmoji: '❤️',
-        explanation: 'Gestos complexos como o coração são desafios para a IA!',
-        educationalNote: 'A IA aprende a reconhecer milhares de gestos diferentes!'
-    },
-    {
-        id: 'creative4',
-        type: QUESTION_TYPES.GESTURE,
-        question: 'Faz um gesto de 👌 (OK) para a câmara!',
-        gestureType: 'ok',
-        gestureEmoji: '👌',
-        explanation: 'O gesto OK é reconhecido em muitas culturas!',
-        educationalNote: 'Computer Vision precisa entender contextos culturais!'
-    },
-    {
-        id: 'creative5',
         type: QUESTION_TYPES.QUIZ,
         question: 'Em que área da Engenharia Informática aprendes Visão Computacional?',
         options: ['Bases de Dados', 'Inteligência Artificial', 'Redes de Computadores', 'Design Gráfico'],
@@ -211,7 +184,7 @@ const QUIZ_QUESTIONS = [
 ];
 
 // ===================================
-// GAME ROUNDS STRUCTURE (22 rounds)
+// GAME ROUNDS STRUCTURE (19 rounds)
 // ===================================
 
 const GAME_STRUCTURE = [
@@ -240,12 +213,9 @@ const GAME_STRUCTURE = [
     { round: 16, type: QUESTION_TYPES.CODE, questionId: 'code2' },
     { round: 17, type: QUESTION_TYPES.CODE, questionId: 'code3' },
 
-    // Rounds 18-22: Creative AI (with gestures!)
+    // Rounds 18-19: Creative AI
     { round: 18, type: QUESTION_TYPES.QUIZ, questionId: 'creative1' },
-    { round: 19, type: QUESTION_TYPES.GESTURE, questionId: 'creative2' },  // 👍
-    { round: 20, type: QUESTION_TYPES.GESTURE, questionId: 'creative3' },  // ❤️
-    { round: 21, type: QUESTION_TYPES.GESTURE, questionId: 'creative4' },  // 👌
-    { round: 22, type: QUESTION_TYPES.QUIZ, questionId: 'creative5' }
+    { round: 19, type: QUESTION_TYPES.QUIZ, questionId: 'creative2' }
 ];
 
 // ===================================
@@ -285,9 +255,37 @@ async function initializeGame() {
         // Load face-api.js models
         const MODEL_URL = './models';
 
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+        console.log('Loading face detection models from:', MODEL_URL);
+
+        try {
+            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+            console.log('✓ TinyFaceDetector loaded');
+        } catch (e) {
+            console.error('✗ TinyFaceDetector failed:', e);
+            throw new Error('Falha ao carregar TinyFaceDetector');
+        }
+
+        try {
+            await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+            console.log('✓ FaceLandmark68Net loaded');
+        } catch (e) {
+            console.error('✗ FaceLandmark68Net failed:', e);
+            throw new Error('Falha ao carregar FaceLandmark68Net');
+        }
+
+        try {
+            await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+            console.log('✓ FaceExpressionNet loaded');
+        } catch (e) {
+            console.error('✗ FaceExpressionNet failed:', e);
+            throw new Error('Falha ao carregar FaceExpressionNet');
+        }
+
+        console.log('All face-api models loaded successfully!');
+
+        // Note: Handpose disabled to avoid conflicts with face-api.js
+        // Gesture detection will use simplified method
+        console.log('Handpose disabled - using simplified gesture detection');
 
         updateLoadingStatus('A iniciar câmara...');
 
@@ -304,6 +302,12 @@ async function initializeGame() {
                 resolve();
             };
         });
+
+        // Start playing the video
+        await video.play();
+
+        // Wait a bit for the video to actually start streaming
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         // Set up canvas overlay
         const canvas = document.getElementById('overlay');
@@ -365,9 +369,6 @@ function nextRound() {
         case QUESTION_TYPES.CODE:
             startQuizRound(roundConfig.questionId);
             break;
-        case QUESTION_TYPES.GESTURE:
-            startGestureRound(roundConfig.questionId);
-            break;
     }
 }
 
@@ -408,27 +409,86 @@ function startEmotionRound() {
 function startEmotionDetection(targetEmotion) {
     const video = document.getElementById('video');
     const canvas = document.getElementById('overlay');
+
+    // Clear any existing detection interval
+    if (gameState.detectionInterval) {
+        clearInterval(gameState.detectionInterval);
+        gameState.detectionInterval = null;
+    }
+
+    // Check if models are loaded
+    if (!faceapi.nets.tinyFaceDetector.isLoaded ||
+        !faceapi.nets.faceLandmark68Net.isLoaded ||
+        !faceapi.nets.faceExpressionNet.isLoaded) {
+        console.error('Face-api models not loaded!');
+        document.getElementById('detected-emotion').textContent = 'Erro: Modelos não carregados';
+        return;
+    }
+
+    // Ensure video dimensions are valid
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+        console.warn('Video dimensions not ready, waiting...');
+        setTimeout(() => startEmotionDetection(targetEmotion), 100);
+        return;
+    }
+
+    console.log('Starting emotion detection:', {
+        targetEmotion,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        videoReadyState: video.readyState,
+        modelsLoaded: {
+            tinyFaceDetector: faceapi.nets.tinyFaceDetector.isLoaded,
+            faceLandmark68Net: faceapi.nets.faceLandmark68Net.isLoaded,
+            faceExpressionNet: faceapi.nets.faceExpressionNet.isLoaded
+        }
+    });
+
     const displaySize = { width: video.videoWidth, height: video.videoHeight };
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
     faceapi.matchDimensions(canvas, displaySize);
 
     let correctEmotionStartTime = null;
     let roundCompleted = false;
+    let detectionAttempts = 0;
+
+    // Draw a test indicator to verify canvas is working
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+    ctx.fillRect(10, 10, 20, 20);
+    console.log('Canvas test: green square drawn at top-left');
 
     gameState.detectionInterval = setInterval(async () => {
         if (!gameState.isPlaying || roundCompleted) return;
 
-        const detections = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
-                inputSize: 224,
-                scoreThreshold: 0.5
-            }))
-            .withFaceLandmarks()
-            .withFaceExpressions();
-
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (detections) {
+        try {
+            detectionAttempts++;
+
+            const detections = await faceapi
+                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
+                    inputSize: 416,
+                    scoreThreshold: 0.3
+                }))
+                .withFaceLandmarks()
+                .withFaceExpressions();
+
+            // Log first few attempts for debugging
+            if (detectionAttempts <= 5) {
+                console.log(`Detection attempt ${detectionAttempts}:`, detections ? 'Face found!' : 'No face detected');
+                if (detections) {
+                    console.log('Detection details:', {
+                        score: detections.detection.score,
+                        box: detections.detection.box,
+                        expressions: detections.expressions
+                    });
+                }
+            }
+
+            if (detections) {
             const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
             // Calculate tight bounding box from face landmarks
@@ -516,6 +576,10 @@ function startEmotionDetection(targetEmotion) {
         } else {
             document.getElementById('detected-emotion').textContent = 'Nenhum rosto detectado';
             correctEmotionStartTime = null;
+        }
+        } catch (error) {
+            console.error('Face detection error:', error);
+            document.getElementById('detected-emotion').textContent = 'Erro na deteção';
         }
     }, 100);
 }
@@ -701,52 +765,6 @@ function selectQuizAnswer(selected, correct, explanation) {
 }
 
 // ===================================
-// GESTURE ROUND (19)
-// ===================================
-
-function startGestureRound(questionId) {
-    gameState.currentQuestionType = QUESTION_TYPES.GESTURE;
-
-    const question = QUIZ_QUESTIONS.find(q => q.id === questionId);
-    if (!question) return;
-
-    gameState.timeRemaining = 20;
-
-    // Show camera
-    showGameElement('camera');
-    hideGameElement('quiz');
-
-    document.getElementById('challenge-title').textContent = 'Desafio de Gesto:';
-    document.getElementById('target-emotion').textContent = question.gestureEmoji || '👍';
-    document.getElementById('detected-emotion').textContent = question.question.replace('Faz um gesto de ', '').replace(' para a câmara!', '');
-    document.getElementById('quiz-timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
-    document.getElementById('quiz-educational-note').textContent = question.educationalNote;
-
-    // Simplified gesture detection (motion detection)
-    detectGesture();
-    startRoundTimer(20);
-}
-
-function detectGesture() {
-    // Simplified: detect any significant hand movement as "gesture"
-    let gestureDetected = false;
-
-    const checkGesture = setInterval(() => {
-        // Simulate gesture detection after 5 seconds
-        if (gameState.timeRemaining <= 15 && !gestureDetected) {
-            gestureDetected = true;
-            clearInterval(checkGesture);
-            roundSuccess('gesture', gameState.timeRemaining, QUESTION_TYPES.GESTURE);
-        }
-
-        // Check for all gesture rounds (19, 20, 21)
-        if (gameState.timeRemaining <= 0 || (gameState.currentRound !== 19 && gameState.currentRound !== 20 && gameState.currentRound !== 21)) {
-            clearInterval(checkGesture);
-        }
-    }, 1000);
-}
-
-// ===================================
 // ROUND TIMER
 // ===================================
 
@@ -757,8 +775,7 @@ function startRoundTimer(duration) {
         gameState.timeRemaining--;
 
         // Update the appropriate timer element based on current question type
-        const timerElement = (gameState.currentQuestionType === QUESTION_TYPES.EMOTION_CAMERA ||
-                             gameState.currentQuestionType === QUESTION_TYPES.GESTURE)
+        const timerElement = (gameState.currentQuestionType === QUESTION_TYPES.EMOTION_CAMERA)
                              ? 'timer'
                              : 'quiz-timer';
 
