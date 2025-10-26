@@ -755,7 +755,17 @@ function startRoundTimer(duration) {
 
     gameState.roundTimer = setInterval(() => {
         gameState.timeRemaining--;
-        document.getElementById('timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
+
+        // Update the appropriate timer element based on current question type
+        const timerElement = (gameState.currentQuestionType === QUESTION_TYPES.EMOTION_CAMERA ||
+                             gameState.currentQuestionType === QUESTION_TYPES.GESTURE)
+                             ? 'timer'
+                             : 'quiz-timer';
+
+        const timerEl = document.getElementById(timerElement);
+        if (timerEl) {
+            timerEl.textContent = `Tempo: ${gameState.timeRemaining}s`;
+        }
 
         const progress = ((duration - gameState.timeRemaining) / duration) * 100;
         document.getElementById('progress').style.width = `${progress}%`;
