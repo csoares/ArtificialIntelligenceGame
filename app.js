@@ -57,7 +57,7 @@ const SUCCESS_DURATION = 1500; // milliseconds to hold correct emotion
 // ===================================
 
 const QUIZ_QUESTIONS = [
-    // BLOCO 2: Como a IA Vê?
+    // BLOCO 2: Como a IA Reconhece Emoções?
     {
         id: 'cv1',
         type: QUESTION_TYPES.VISUAL,
@@ -65,121 +65,121 @@ const QUIZ_QUESTIONS = [
         image: 'faces',
         options: ['1 face', '2 faces', '3 faces', '4 faces'],
         correct: 2,
-        explanation: 'A IA usa deteção de faces para contar rostos!',
-        educationalNote: 'Em Engenharia Informática aprendes a criar detetores de objetos!'
+        explanation: 'A IA usa algoritmos de deteção de faces para identificar rostos em imagens!',
+        educationalNote: 'Em Engenharia Informática, aprendes a criar sistemas que identificam e analisam expressões faciais para reconhecer emoções!'
     },
     {
         id: 'cv2',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Qual destas emoções é mais fácil para a IA detetar?',
-        options: ['Neutro', 'Feliz (sorriso)', 'Surpreso', 'Com Medo'],
+        question: 'Qual destas emoções é mais fácil para a IA detetar com precisão?',
+        options: ['Neutro', 'Feliz (sorriso)', 'Medo subtil', 'Tristeza ligeira'],
         correct: 1,
-        explanation: 'O sorriso tem padrões faciais muito distintos: boca curvada + olhos',
-        educationalNote: 'Machine Learning aprende padrões em milhares de imagens!'
+        explanation: 'O sorriso tem padrões faciais muito distintos: boca curvada para cima, bochechas elevadas e olhos contraídos!',
+        educationalNote: 'Machine Learning aprende padrões em milhares de imagens. Quanto mais expressiva a emoção, mais fácil é para a IA reconhecê-la!'
     },
     {
         id: 'cv3',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Quantos pontos faciais a IA usa para detetar emoções?',
+        question: 'Quantos pontos de referência faciais a IA usa para detetar emoções?',
         options: ['10 pontos', '25 pontos', '68 pontos', '100 pontos'],
         correct: 2,
-        explanation: 'A IA usa 68 pontos de referência no rosto (face landmarks)!',
-        educationalNote: 'Face landmarks são coordenadas precisas: olhos, nariz, boca, etc.'
+        explanation: 'A IA usa 68 pontos de referência (landmarks) no rosto: sobrancelhas, olhos, nariz, boca e contorno facial!',
+        educationalNote: 'Estes pontos são coordenadas precisas que permitem à IA "entender" expressões faciais, uma aplicação fascinante de Visão Computacional!'
     },
 
-    // BLOCO 3: IA no Mundo Real
+    // BLOCO 3: Inteligência Emocional e Tecnologia
     {
         id: 'app1',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Onde usamos reconhecimento facial no dia-a-dia?',
-        options: ['Desbloquear telemóvel', 'Filtros Instagram', 'Segurança aeroportos', 'Todas as anteriores'],
-        correct: 3,
-        explanation: 'Visão Computacional está em todo o lado!',
-        educationalNote: 'Em EI aprendes a criar estas aplicações!'
+        question: 'Porque é importante que um engenheiro informático compreenda emoções humanas?',
+        options: ['Não é importante', 'Para criar interfaces mais intuitivas', 'Apenas para marketing', 'Para programar mais rápido'],
+        correct: 1,
+        explanation: 'A Inteligência Emocional ajuda engenheiros a criar sistemas que respondem melhor às necessidades dos utilizadores!',
+        educationalNote: 'UX Design + Inteligência Emocional = Aplicações que as pessoas adoram usar! Em EI aprendes a equilibrar tecnologia e psicologia!'
     },
     {
         id: 'app2',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Como funcionam os filtros de cão no Instagram/Snapchat?',
-        options: ['Magia', 'Deteção de pontos faciais', 'Sensores no telemóvel', 'GPS'],
+        question: 'Qual destas aplicações usa reconhecimento de emoções para melhorar a experiência do utilizador?',
+        options: ['Calculadora simples', 'Sistema que deteta stress em motoristas', 'Bloco de notas', 'Relógio digital'],
         correct: 1,
-        explanation: 'A IA deteta pontos do rosto e coloca as orelhas na posição certa!',
-        educationalNote: 'Isto chama-se Realidade Aumentada (AR) + Computer Vision!'
+        explanation: 'Carros inteligentes podem detetar stress ou cansaço e sugerir pausas, aumentando a segurança rodoviária!',
+        educationalNote: 'Inteligência Emocional Artificial pode salvar vidas! Engenheiros criam sistemas que "entendem" estados emocionais e reagem adequadamente!'
     },
     {
         id: 'app3',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Que tecnologia permite aos carros Tesla detetarem obstáculos?',
-        options: ['GPS', 'Visão Computacional', 'Radar apenas', 'Magia'],
+        question: 'Qual é uma preocupação ética importante em sistemas de reconhecimento de emoções?',
+        options: ['Consumo de energia', 'Privacidade e consentimento dos utilizadores', 'Cor do interface', 'Velocidade do processador'],
         correct: 1,
-        explanation: 'Câmaras + IA = Carros autónomos!',
-        educationalNote: 'Computer Vision salva vidas em carros autónomos!'
+        explanation: 'Engenheiros responsáveis devem garantir que sistemas de IA respeitam a privacidade e têm consentimento para analisar emoções!',
+        educationalNote: 'Ética em IA é fundamental! Em Engenharia Informática aprendes a criar tecnologia responsável e respeitadora dos direitos humanos!'
     },
 
-    // BLOCO 4: Desafio de Código
+    // BLOCO 4: Programação e Lógica Emocional
     {
         id: 'code1',
         type: QUESTION_TYPES.CODE,
         question: 'Completa o código para detetar um sorriso:',
-        code: `SE boca_curvada_para_cima E olhos_abertos:
+        code: `SE boca_curvada_para_cima E olhos_contraídos:
     emoção = ?`,
         options: ['Triste', 'Feliz', 'Zangado', 'Surpreso'],
         correct: 1,
-        explanation: 'Boca curvada para cima + olhos abertos = Feliz!',
-        educationalNote: 'Isto é lógica de programação básica (IF statements)!'
+        explanation: 'Boca curvada para cima + olhos contraídos (sorriso genuíno) = Feliz! Isto chama-se "Sorriso de Duchenne".',
+        educationalNote: 'Isto é lógica de programação (IF statements) aplicada a emoções! Em EI aprendes a traduzir comportamentos humanos para código!'
     },
     {
         id: 'code2',
         type: QUESTION_TYPES.CODE,
-        question: 'Ordena os passos de deteção de emoções:',
+        question: 'Ordena os passos de um sistema de deteção de emoções:',
         code: `1. ???
 2. ???
 3. ???
 4. ???`,
         options: [
-            '1.Capturar → 2.Analisar → 3.Comparar → 4.Decidir',
-            '1.Decidir → 2.Capturar → 3.Analisar → 4.Comparar',
-            '1.Comparar → 2.Decidir → 3.Capturar → 4.Analisar',
-            '1.Analisar → 2.Capturar → 3.Decidir → 4.Comparar'
+            '1.Capturar imagem → 2.Analisar pontos faciais → 3.Comparar com padrões → 4.Classificar emoção',
+            '1.Classificar → 2.Capturar → 3.Analisar → 4.Comparar',
+            '1.Comparar → 2.Classificar → 3.Capturar → 4.Analisar',
+            '1.Analisar → 2.Capturar → 3.Classificar → 4.Comparar'
         ],
         correct: 0,
-        explanation: 'A IA segue sempre: Capturar imagem → Analisar → Comparar → Decidir',
-        educationalNote: 'Isto é um algoritmo - sequência de passos para resolver um problema!'
+        explanation: 'Um sistema de IA emocional segue sempre esta pipeline: Capturar → Analisar → Comparar → Classificar!',
+        educationalNote: 'Isto é um algoritmo - uma sequência lógica de passos. Em EI aprendes a desenhar pipelines de processamento de dados!'
     },
     {
         id: 'code3',
         type: QUESTION_TYPES.CODE,
-        question: 'Encontra o erro neste código:',
-        code: `function detectarEmocao(rosto) {
-    se (rosto == null) {
-        return "Sem rosto";
+        question: 'Encontra o erro neste código de análise de emoções:',
+        code: `function analisarEmocao(expressao) {
+    if (expressao.confianca > 0.8) {
+        return expressao.emocao;
     }
-    retornar "Emoção detetada";
+    retornar "Incerto";
 }`,
-        options: ['Linha 2: falta parentesis', 'Linha 5: "retornar" está errado', 'Linha 1: falta ponto e vírgula', 'Não há erro'],
+        options: ['Linha 2: falta ponto e vírgula', 'Linha 5: deve ser "return" em vez de "retornar"', 'Linha 2: "if" está errado', 'Não há erro'],
         correct: 1,
-        explanation: 'Em JavaScript usa-se "return", não "retornar"!',
-        educationalNote: 'Debugging é encontrar e corrigir erros - 50% do trabalho de um programador!'
+        explanation: 'Em JavaScript usa-se "return", não "retornar"! Misturar português e inglês no código causa erros de sintaxe.',
+        educationalNote: 'Debugging é encontrar e corrigir erros - uma competência essencial! Bons engenheiros testam sistemas de IA para garantir precisão!'
     },
 
-    // BLOCO 5: IA Criativa
+    // BLOCO 5: Aplicações e Futuro da IE
     {
         id: 'creative1',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Que cor associas à felicidade?',
-        options: ['Amarelo', 'Azul', 'Vermelho', 'Verde'],
-        correct: 0,
-        explanation: 'Estatisticamente, amarelo é a cor mais associada à felicidade!',
-        educationalNote: 'Data Science analisa milhões de respostas para encontrar padrões!'
+        question: 'Como pode a deteção de emoções ajudar em ambientes de aprendizagem?',
+        options: ['Não pode ajudar', 'Detetar confusão e adaptar explicações', 'Substituir professores', 'Apenas para dar notas'],
+        correct: 1,
+        explanation: 'Sistemas educativos inteligentes podem detetar quando um aluno está confuso e ajustar o ritmo ou método de ensino!',
+        educationalNote: 'Adaptive Learning usa IA + Inteligência Emocional para personalizar educação. Em EI podes criar sistemas que tornam a aprendizagem mais eficaz!'
     },
     {
         id: 'creative2',
         type: QUESTION_TYPES.QUIZ,
-        question: 'Em que área da Engenharia Informática aprendes Visão Computacional?',
-        options: ['Bases de Dados', 'Inteligência Artificial', 'Redes de Computadores', 'Design Gráfico'],
+        question: 'Em que áreas da Engenharia Informática trabalhas com Inteligência Emocional e reconhecimento de emoções?',
+        options: ['Apenas Bases de Dados', 'Inteligência Artificial e Human-Computer Interaction', 'Apenas Hardware', 'Design Gráfico tradicional'],
         correct: 1,
-        explanation: 'Computer Vision é parte de IA e Machine Learning!',
-        educationalNote: 'Na UFP tens cadeiras de IA, ML e Computer Vision!'
+        explanation: 'Reconhecimento de emoções combina IA (Machine Learning, Computer Vision) com HCI (interação humano-computador)!',
+        educationalNote: 'Na UFP tens cadeiras de IA, Machine Learning, Computer Vision e Interação Pessoa-Máquina onde aprendes estas tecnologias fascinantes!'
     }
 ];
 
