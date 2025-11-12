@@ -138,9 +138,9 @@ const QUIZ_QUESTIONS = [
 4. ???`,
         options: [
             '1.Capturar imagem → 2.Analisar pontos faciais → 3.Comparar com padrões → 4.Classificar emoção',
-            '1.Classificar → 2.Capturar → 3.Analisar → 4.Comparar',
-            '1.Comparar → 2.Classificar → 3.Capturar → 4.Analisar',
-            '1.Analisar → 2.Capturar → 3.Classificar → 4.Comparar'
+            '1.Classificar emoção → 2.Capturar imagem → 3.Analisar pontos faciais → 4.Comparar com padrões',
+            '1.Comparar com padrões → 2.Classificar emoção → 3.Capturar imagem → 4.Analisar pontos faciais',
+            '1.Analisar pontos faciais → 2.Capturar imagem → 3.Classificar emoção → 4.Comparar com padrões'
         ],
         correct: 0,
         explanation: 'Um sistema de IA emocional segue sempre esta pipeline: Capturar → Analisar → Comparar → Classificar!',
@@ -242,6 +242,24 @@ document.getElementById('registration-form').addEventListener('submit', async (e
 
     showScreen('loading-screen');
     await initializeGame();
+});
+
+// ===================================
+// KIOSK MODE AUTO-START
+// ===================================
+
+// Check if kiosk mode is enabled on page load
+window.addEventListener('DOMContentLoaded', async () => {
+    if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true) {
+        // In kiosk mode, skip registration and start automatically
+        gameState.student.firstName = 'Visitante';
+        gameState.student.lastName = '';
+        gameState.student.school = 'UFP';
+
+        // Hide registration screen and show loading screen
+        showScreen('loading-screen');
+        await initializeGame();
+    }
 });
 
 // ===================================
@@ -453,6 +471,12 @@ function startEmotionDetection(targetEmotion) {
     let roundCompleted = false;
     let detectionAttempts = 0;
 
+    // Anti-blink: store last valid detection and box coordinates
+    let lastValidDetection = null;
+    let lastValidTime = Date.now();
+    let lastValidBox = null;
+    const DETECTION_PERSISTENCE_MS = 500; // Keep last detection for 500ms
+
     // Draw a test indicator to verify canvas is working
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
@@ -463,7 +487,6 @@ function startEmotionDetection(targetEmotion) {
         if (!gameState.isPlaying || roundCompleted) return;
 
         const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         try {
             detectionAttempts++;
@@ -488,15 +511,38 @@ function startEmotionDetection(targetEmotion) {
                 }
             }
 
+            // Anti-blink: use current detection or last valid detection
+            let currentDetection = detections;
+            let useLastBox = false;
+
             if (detections) {
-            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                lastValidDetection = detections;
+                lastValidTime = Date.now();
+            } else if (lastValidDetection && (Date.now() - lastValidTime) < DETECTION_PERSISTENCE_MS) {
+                // Use last valid detection if it's recent enough
+                currentDetection = lastValidDetection;
+                useLastBox = true;
+            }
+
+            // Only clear canvas if we have something to draw (prevents blank frames)
+            if (currentDetection || lastValidBox) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            if (currentDetection) {
+            const resizedDetections = faceapi.resizeResults(currentDetection, displaySize);
 
             // Calculate tight bounding box from face landmarks
             const landmarks = resizedDetections.landmarks.positions;
-            const box = calculateFaceBoundingBox(landmarks);
+            const box = useLastBox && lastValidBox ? lastValidBox : calculateFaceBoundingBox(landmarks);
+
+            // Store box coordinates for next frame
+            if (!useLastBox) {
+                lastValidBox = box;
+            }
 
             // Determine box color based on emotion match
-            const expressions = detections.expressions;
+            const expressions = currentDetection.expressions;
             const dominantEmotion = getDominantEmotion(expressions);
             const confidence = expressions[dominantEmotion];
             const isCorrectEmotion = dominantEmotion === targetEmotion && confidence > DETECTION_THRESHOLD;
@@ -556,10 +602,14 @@ function startEmotionDetection(targetEmotion) {
                 ctx.fillRect(box.x, barY, box.width * progressRatio, barHeight);
             }
 
-            document.getElementById('detected-emotion').textContent =
-                `Detectado: ${EMOTION_TRANSLATIONS[dominantEmotion]} (${Math.round(confidence * 100)}%)`;
+            // Only update emotion text if we have a fresh detection (prevents blinking)
+            if (detections) {
+                document.getElementById('detected-emotion').textContent =
+                    `Detectado: ${EMOTION_TRANSLATIONS[dominantEmotion]} (${Math.round(confidence * 100)}%)`;
+            }
 
-            if (dominantEmotion === targetEmotion && confidence > DETECTION_THRESHOLD) {
+            // Only process correct emotion detection with fresh detections
+            if (detections && dominantEmotion === targetEmotion && confidence > DETECTION_THRESHOLD) {
                 if (correctEmotionStartTime === null) {
                     correctEmotionStartTime = Date.now();
                 }
@@ -570,12 +620,17 @@ function startEmotionDetection(targetEmotion) {
                     roundCompleted = true;
                     roundSuccess(targetEmotion, gameState.timeRemaining, QUESTION_TYPES.EMOTION_CAMERA);
                 }
-            } else {
+            } else if (detections) {
                 correctEmotionStartTime = null;
             }
         } else {
-            document.getElementById('detected-emotion').textContent = 'Nenhum rosto detectado';
-            correctEmotionStartTime = null;
+            // Only show "no face" message if detection has been lost for a while
+            if (!lastValidDetection || (Date.now() - lastValidTime) >= DETECTION_PERSISTENCE_MS) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                lastValidBox = null;
+                document.getElementById('detected-emotion').textContent = 'A detetar...';
+                correctEmotionStartTime = null;
+            }
         }
         } catch (error) {
             console.error('Face detection error:', error);
@@ -892,11 +947,14 @@ function endGame() {
     // Save to backend
     saveResultToBackend(finalScore);
 
-    // Stop video stream
-    const video = document.getElementById('video');
-    const stream = video.srcObject;
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+    // In normal mode, stop video stream
+    // In kiosk mode, keep the camera running for next game
+    if (typeof APP_CONFIG === 'undefined' || APP_CONFIG.kioskMode !== true) {
+        const video = document.getElementById('video');
+        const stream = video.srcObject;
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
     }
 }
 
@@ -975,9 +1033,23 @@ async function exportCSV() {
 // PLAY AGAIN
 // ===================================
 
-document.getElementById('play-again-btn').addEventListener('click', () => {
-    document.getElementById('registration-form').reset();
-    showScreen('registration-screen');
+document.getElementById('play-again-btn').addEventListener('click', async () => {
+    // Check if kiosk mode is enabled
+    if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true) {
+        // In kiosk mode, restart the game directly
+        gameState.currentRound = 0;
+        gameState.score = 0;
+        gameState.roundResults = [];
+        gameState.usedEmotions = [];
+        gameState.lastEmotion = null;
+
+        showScreen('game-screen');
+        startGame();
+    } else {
+        // In normal mode, go back to registration screen
+        document.getElementById('registration-form').reset();
+        showScreen('registration-screen');
+    }
 });
 
 // ===================================
