@@ -19,11 +19,12 @@ const gameState = {
     roundTimer: null,
     timeRemaining: 15,
     usedEmotions: [],
-    currentQuestionType: null
+    currentQuestionType: null,
+    gameStructure: null // Will be populated with randomized structure at game start
 };
 
 // Emotions to challenge (face-api.js supports these)
-const EMOTIONS = ['happy', 'sad', 'angry', 'surprised', 'neutral', 'fearful', 'disgusted'];
+const EMOTIONS = ['happy', 'sad', 'angry', 'surprised', 'neutral', 'fearful'];
 
 // Portuguese translations for emotions
 const EMOTION_TRANSLATIONS = {
@@ -46,11 +47,11 @@ const QUESTION_TYPES = {
 };
 
 // Constants
-const EMOTION_ROUND_DURATION = 15; // seconds per emotion round
+const EMOTION_ROUND_DURATION = 20; // seconds per emotion round
 const QUIZ_ROUND_DURATION = 30; // seconds per quiz round
 const CODE_ROUND_DURATION = 45; // seconds per code round
-const DETECTION_THRESHOLD = 0.6; // confidence threshold for emotion detection
-const SUCCESS_DURATION = 1500; // milliseconds to hold correct emotion
+const DETECTION_THRESHOLD = 0.5; // confidence threshold for emotion detection
+const SUCCESS_DURATION = 1000; // milliseconds to hold correct emotion
 
 // ===================================
 // QUIZ QUESTIONS DATABASE
@@ -219,6 +220,41 @@ const GAME_STRUCTURE = [
 ];
 
 // ===================================
+// UTILITY FUNCTIONS
+// ===================================
+
+// Fisher-Yates shuffle algorithm
+function shuffleArray(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+}
+
+// Create a randomized game structure with shuffled quiz questions
+function createRandomizedGameStructure() {
+    // Copy the base structure
+    const structure = JSON.parse(JSON.stringify(GAME_STRUCTURE));
+
+    // Extract all quiz/code question IDs from rounds 9-19
+    const questionIds = structure
+        .slice(8, 19) // rounds 9-19
+        .map(round => round.questionId);
+
+    // Shuffle the question IDs
+    const shuffledQuestionIds = shuffleArray(questionIds);
+
+    // Reassign shuffled IDs back to rounds 9-19
+    for (let i = 8; i < 19; i++) {
+        structure[i].questionId = shuffledQuestionIds[i - 8];
+    }
+
+    return structure;
+}
+
+// ===================================
 // SCREEN MANAGEMENT
 // ===================================
 
@@ -251,15 +287,20 @@ document.getElementById('registration-form').addEventListener('submit', async (e
 // Check if kiosk mode is enabled on page load
 window.addEventListener('DOMContentLoaded', async () => {
     if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true) {
-        // In kiosk mode, skip registration and start automatically
+        // In kiosk mode, skip registration and show start screen
         gameState.student.firstName = 'Visitante';
         gameState.student.lastName = '';
         gameState.student.school = 'UFP';
 
-        // Hide registration screen and show loading screen
-        showScreen('loading-screen');
-        await initializeGame();
+        // Show kiosk start screen instead of registration
+        showScreen('kiosk-start-screen');
     }
+});
+
+// Kiosk start button handler
+document.getElementById('kiosk-start-btn').addEventListener('click', async () => {
+    showScreen('loading-screen');
+    await initializeGame();
 });
 
 // ===================================
@@ -362,6 +403,9 @@ function startGame() {
     gameState.usedEmotions = [];
     gameState.lastEmotion = null;
 
+    // Create randomized game structure for this playthrough
+    gameState.gameStructure = createRandomizedGameStructure();
+
     nextRound();
 }
 
@@ -372,7 +416,7 @@ function nextRound() {
     }
 
     gameState.currentRound++;
-    const roundConfig = GAME_STRUCTURE[gameState.currentRound - 1];
+    const roundConfig = gameState.gameStructure[gameState.currentRound - 1];
 
     // Update progress
     document.getElementById('current-round').textContent = `Ronda: ${gameState.currentRound}/${gameState.totalRounds}`;
@@ -737,15 +781,28 @@ function startQuizRound(questionId) {
         document.getElementById('visual-container').style.display = 'none';
     }
 
-    // Create answer buttons
+    // Create answer buttons with randomized positions
     const optionsContainer = document.getElementById('quiz-options');
     optionsContainer.innerHTML = '';
 
-    question.options.forEach((option, index) => {
+    // Create array of options with their original indices
+    const optionsWithIndices = question.options.map((option, index) => ({
+        text: option,
+        originalIndex: index
+    }));
+
+    // Shuffle the options
+    const shuffledOptions = shuffleArray(optionsWithIndices);
+
+    // Find the new position of the correct answer
+    const newCorrectIndex = shuffledOptions.findIndex(opt => opt.originalIndex === question.correct);
+
+    // Create buttons with shuffled options
+    shuffledOptions.forEach((option, index) => {
         const button = document.createElement('button');
         button.className = 'quiz-option-btn';
-        button.textContent = option;
-        button.onclick = () => selectQuizAnswer(index, question.correct, question.explanation);
+        button.textContent = option.text;
+        button.onclick = () => selectQuizAnswer(index, newCorrectIndex, question.explanation);
         optionsContainer.appendChild(button);
     });
 
@@ -1036,15 +1093,14 @@ async function exportCSV() {
 document.getElementById('play-again-btn').addEventListener('click', async () => {
     // Check if kiosk mode is enabled
     if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true) {
-        // In kiosk mode, restart the game directly
+        // In kiosk mode, return to start screen
         gameState.currentRound = 0;
         gameState.score = 0;
         gameState.roundResults = [];
         gameState.usedEmotions = [];
         gameState.lastEmotion = null;
 
-        showScreen('game-screen');
-        startGame();
+        showScreen('kiosk-start-screen');
     } else {
         // In normal mode, go back to registration screen
         document.getElementById('registration-form').reset();
