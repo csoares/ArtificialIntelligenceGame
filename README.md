@@ -40,6 +40,42 @@ Abre o teu browser e vai a:
 http://localhost:3000
 ```
 
+## 🖥️ Modo Kiosk (Demonstração Contínua)
+
+O jogo suporta dois modos de operação:
+
+### Modo Normal (Padrão)
+- Pede nome, apelido e escola do utilizador
+- Mostra resultados detalhados no final
+- Utilizador clica "Jogar Novamente" e volta ao ecrã de registo
+
+### Modo Kiosk
+- Salta o ecrã de registo (utilizador = "Visitante")
+- Mostra resultados detalhados no final
+- Utilizador clica "Jogar Novamente" e volta diretamente ao jogo (sem ecrã de registo)
+- Câmara mantém-se ativa entre jogos
+- Ideal para eventos, feiras e demonstrações
+
+### Como Ativar o Modo Kiosk
+
+Edita o ficheiro **`config.js`** e muda `kioskMode` para `true`:
+
+```javascript
+const APP_CONFIG = {
+    kioskMode: true  // Ativa modo kiosk
+};
+```
+
+Para voltar ao modo normal, muda para `false`:
+
+```javascript
+const APP_CONFIG = {
+    kioskMode: false  // Modo normal
+};
+```
+
+Não é necessário reiniciar o servidor - basta recarregar a página no browser!
+
 ## 📊 Resultados
 
 Os resultados são guardados automaticamente no ficheiro **`resultados_emocoes.csv`** na pasta do projeto.
@@ -54,6 +90,7 @@ No ecrã final do jogo, clica no botão **"Exportar Dados (CSV)"** para descarre
 SantoTirsoChallenge/
 ├── index.html              # Frontend do jogo
 ├── app.js                  # Lógica do jogo (frontend)
+├── config.js               # Configuração (Modo Kiosk)
 ├── style.css               # Estilos
 ├── server.js               # Backend Node.js
 ├── package.json            # Dependências
