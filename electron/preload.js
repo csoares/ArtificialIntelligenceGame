@@ -6,6 +6,7 @@ console.log('Preload script loaded');
 contextBridge.exposeInMainWorld('electronAPI', {
     // App info
     getVersion: () => ipcRenderer.invoke('get-app-version'),
+    getResourcesPath: () => ipcRenderer.invoke('get-resources-path'),
 
     // File operations
     exportCSV: (data) => ipcRenderer.invoke('export-csv', data),

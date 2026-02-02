@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const url = require('url');
 
 // Catch any uncaught exceptions
 process.on('uncaughtException', (error) => {
@@ -96,10 +97,37 @@ function createWindow() {
     });
 }
 
+// Register custom protocol to serve models from resources
+function registerModelProtocol() {
+    protocol.handle('app-resource', (request) => {
+        const urlPath = request.url.replace('app-resource://', '');
+        let filePath;
+
+        if (isDev) {
+            filePath = path.join(__dirname, '..', urlPath);
+        } else {
+            filePath = path.join(process.resourcesPath, urlPath);
+        }
+
+        console.log('Serving resource:', filePath);
+
+        try {
+            return net.fetch(url.pathToFileURL(filePath).href);
+        } catch (error) {
+            console.error('Error serving resource:', error);
+            return new Response('Not found', { status: 404 });
+        }
+    });
+}
+
 // App ready event
 app.whenReady().then(() => {
     console.log('App is ready, creating window...');
     console.log('Running in development mode:', isDev);
+
+    // Register custom protocol for serving resources
+    registerModelProtocol();
+
     createWindow();
 
     app.on('activate', () => {
@@ -195,6 +223,15 @@ ipcMain.handle('export-csv', async (event, data) => {
 
 ipcMain.handle('get-app-data-path', () => {
     return app.getPath('userData');
+});
+
+ipcMain.handle('get-resources-path', () => {
+    // In production, models are in Resources/models
+    // In development, models are in ./models
+    if (isDev) {
+        return path.join(__dirname, '..');
+    }
+    return process.resourcesPath;
 });
 
 // Kiosk mode support

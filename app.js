@@ -312,7 +312,15 @@ async function initializeGame() {
         updateLoadingStatus('A carregar modelos de deteção facial...');
 
         // Load face-api.js models
-        const MODEL_URL = './models';
+        // In Electron, use custom app-resource:// protocol
+        // In browser, use relative path ./models
+        let MODEL_URL = './models';
+
+        if (window.electronAPI) {
+            // Use custom protocol registered in Electron main process
+            MODEL_URL = 'app-resource://models';
+            console.log('Running in Electron, using app-resource protocol');
+        }
 
         console.log('Loading face detection models from:', MODEL_URL);
 
