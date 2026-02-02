@@ -37,3 +37,10 @@ temp/
 # Package manager
 package-lock.json
 yarn.lock
+
+# Build directories
+dist-electron/
+dist/
+
+# Electron unpacked
+*-unpacked/
