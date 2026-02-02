@@ -2,13 +2,20 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path');
 const fs = require('fs');
 
-// Conditionally require electron-updater for production builds
-let autoUpdater = null;
-try {
-    autoUpdater = require('electron-updater');
-} catch (e) {
-    console.log('electron-updater not available (development mode)');
-}
+// For now, disable auto-updater to ensure app starts
+// TODO: Fix auto-updater in future version
+// const autoUpdater = null;
+// const updaterAvailable = false;
+
+// try {
+//     autoUpdater = require('electron-updater');
+//     // Check if autoUpdater has the required methods
+//     if (autoUpdater && typeof autoUpdater.on === 'function') {
+//         updaterAvailable = true;
+//     }
+// } catch (e) {
+//     console.log('electron-updater not available (development mode)');
+// }
 
 // Keep reference to window object
 let mainWindow;
@@ -48,10 +55,11 @@ function createWindow() {
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
 
-        // Check for updates
-        if (!isDev && autoUpdater) {
-            autoUpdater.checkForUpdatesAndNotify();
-        }
+        // Auto-updater temporarily disabled to ensure app starts
+        // TODO: Re-enable when properly configured
+        // if (!isDev && updaterAvailable) {
+        //     autoUpdater.checkForUpdatesAndNotify();
+        // }
     });
 
     // Handle window closed
@@ -86,8 +94,9 @@ app.on('window-all-closed', () => {
     }
 });
 
-// Auto-updater events (only in production)
-if (autoUpdater) {
+// Auto-updater events temporarily disabled
+// TODO: Re-enable when properly configured
+// if (updaterAvailable) {
     autoUpdater.on('checking-for-update', () => {
         console.log('Checking for update...');
     });
@@ -127,7 +136,8 @@ if (autoUpdater) {
             }
         });
     });
-}
+//}
+// End of auto-updater events
 
 // IPC handlers for desktop features
 ipcMain.handle('get-app-version', () => {
