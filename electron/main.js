@@ -2,21 +2,6 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path');
 const fs = require('fs');
 
-// For now, disable auto-updater to ensure app starts
-// TODO: Fix auto-updater in future version
-// const autoUpdater = null;
-// const updaterAvailable = false;
-
-// try {
-//     autoUpdater = require('electron-updater');
-//     // Check if autoUpdater has the required methods
-//     if (autoUpdater && typeof autoUpdater.on === 'function') {
-//         updaterAvailable = true;
-//     }
-// } catch (e) {
-//     console.log('electron-updater not available (development mode)');
-// }
-
 // Keep reference to window object
 let mainWindow;
 
@@ -54,12 +39,6 @@ function createWindow() {
     // Show window when ready
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
-
-        // Auto-updater temporarily disabled to ensure app starts
-        // TODO: Re-enable when properly configured
-        // if (!isDev && updaterAvailable) {
-        //     autoUpdater.checkForUpdatesAndNotify();
-        // }
     });
 
     // Handle window closed
@@ -93,51 +72,6 @@ app.on('window-all-closed', () => {
         app.quit();
     }
 });
-
-// Auto-updater events temporarily disabled
-// TODO: Re-enable when properly configured
-// if (updaterAvailable) {
-    autoUpdater.on('checking-for-update', () => {
-        console.log('Checking for update...');
-    });
-
-    autoUpdater.on('update-available', (info) => {
-        console.log('Update available:', info);
-    });
-
-    autoUpdater.on('update-not-available', (info) => {
-        console.log('Update not available:', info);
-    });
-
-    autoUpdater.on('error', (err) => {
-        console.error('Error in auto-updater:', err);
-    });
-
-    autoUpdater.on('download-progress', (progressObj) => {
-        let log_message = "Download speed: " + progressObj.bytesPerSecond;
-        log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
-        log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
-        console.log(log_message);
-    });
-
-    autoUpdater.on('update-downloaded', (info) => {
-        console.log('Update downloaded:', info);
-
-        // Show notification
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Atualização Disponível',
-            message: 'Uma nova versão do Desafio das Emoções está disponível.',
-            detail: 'A aplicação será reiniciada para instalar a atualização.',
-            buttons: ['Reiniciar Agora', 'Mais Tarde']
-        }).then((result) => {
-            if (result.response === 0) {
-                autoUpdater.quitAndInstall();
-            }
-        });
-    });
-//}
-// End of auto-updater events
 
 // IPC handlers for desktop features
 ipcMain.handle('get-app-version', () => {
