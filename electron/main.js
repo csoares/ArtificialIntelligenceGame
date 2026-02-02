@@ -3,6 +3,19 @@ const path = require('path');
 const fs = require('fs');
 const url = require('url');
 
+// Register custom protocol scheme BEFORE app is ready
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: 'app-resource',
+        privileges: {
+            secure: true,
+            standard: true,
+            supportFetchAPI: true,
+            corsEnabled: true
+        }
+    }
+]);
+
 // Catch any uncaught exceptions
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
@@ -99,7 +112,7 @@ function createWindow() {
 
 // Register custom protocol to serve models from resources
 function registerModelProtocol() {
-    protocol.handle('app-resource', (request) => {
+    protocol.handle('app-resource', async (request) => {
         const urlPath = request.url.replace('app-resource://', '');
         let filePath;
 
@@ -109,15 +122,20 @@ function registerModelProtocol() {
             filePath = path.join(process.resourcesPath, urlPath);
         }
 
-        console.log('Serving resource:', filePath);
+        console.log('Protocol request:', request.url);
+        console.log('Serving file:', filePath);
+        console.log('File exists:', fs.existsSync(filePath));
 
         try {
-            return net.fetch(url.pathToFileURL(filePath).href);
+            const fileUrl = url.pathToFileURL(filePath).href;
+            console.log('Fetching:', fileUrl);
+            return net.fetch(fileUrl);
         } catch (error) {
             console.error('Error serving resource:', error);
             return new Response('Not found', { status: 404 });
         }
     });
+    console.log('Custom protocol app-resource:// registered');
 }
 
 // App ready event
