@@ -2,6 +2,11 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path');
 const fs = require('fs');
 
+// Catch any uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
 // Keep reference to window object
 let mainWindow;
 
@@ -21,7 +26,7 @@ function createWindow() {
             enableRemoteModule: false,
             preload: path.join(__dirname, 'preload.js')
         },
-        icon: path.join(__dirname, '../assets/icon.png'),
+        // icon: path.join(__dirname, '../assets/icon.png'),
         show: false // Don't show until ready
     });
 
@@ -33,12 +38,32 @@ function createWindow() {
         mainWindow.webContents.openDevTools();
     } else {
         // In production, load from file
-        mainWindow.loadFile(path.join(__dirname, '../index.html'));
+        // Handle both asar and unpacked scenarios
+        let indexPath = path.join(__dirname, '../index.html');
+
+        // Log the path for debugging
+        console.log('Loading index.html from:', indexPath);
+        console.log('__dirname:', __dirname);
+        console.log('app.getAppPath():', app.getAppPath());
+
+        mainWindow.loadFile(indexPath).catch(err => {
+            console.error('Failed to load index.html:', err);
+            // Try alternative path
+            const altPath = path.join(app.getAppPath(), 'index.html');
+            console.log('Trying alternative path:', altPath);
+            mainWindow.loadFile(altPath);
+        });
     }
 
     // Show window when ready
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
+
+        // Auto-updater temporarily disabled to ensure app starts
+        // TODO: Re-enable when properly configured
+        // if (!isDev && updaterAvailable) {
+        //     autoUpdater.checkForUpdatesAndNotify();
+        // }
     });
 
     // Handle window closed
@@ -55,6 +80,8 @@ function createWindow() {
 
 // App ready event
 app.whenReady().then(() => {
+    console.log('App is ready, creating window...');
+    console.log('Running in development mode:', isDev);
     createWindow();
 
     app.on('activate', () => {
@@ -63,6 +90,8 @@ app.whenReady().then(() => {
             createWindow();
         }
     });
+}).catch(err => {
+    console.error('Failed to initialize app:', err);
 });
 
 // Quit when all windows are closed
@@ -72,6 +101,20 @@ app.on('window-all-closed', () => {
         app.quit();
     }
 });
+
+// Auto-updater completely removed to prevent crashes
+// The code below is commented out
+/*
+if (false) { // Always false - auto-updater disabled
+    const autoUpdater = require('electron-updater');
+
+    autoUpdater.on('checking-for-update', () => {
+        console.log('Checking for update...');
+    });
+
+    // ... rest of auto-updater code removed
+}
+*/
 
 // IPC handlers for desktop features
 ipcMain.handle('get-app-version', () => {
