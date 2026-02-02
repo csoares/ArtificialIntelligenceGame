@@ -1078,12 +1078,41 @@ async function saveResultToBackend(finalScore) {
 
 async function exportCSV() {
     try {
-        // Open download link in new window
-        window.open('http://localhost:3000/api/download-results', '_blank');
+        // Check if running in Electron
+        if (window.electronAPI) {
+            // Electron desktop app
+            const csvContent = generateCSVContent();
+            const result = await window.electronAPI.exportCSV(csvContent);
+
+            if (result.success) {
+                const saveNotice = document.getElementById('save-notice');
+                saveNotice.textContent = `Resultados guardados em: ${result.filePath}`;
+                saveNotice.style.color = '#4CAF50';
+            } else if (!result.cancelled) {
+                alert('Erro ao guardar o ficheiro: ' + result.error);
+            }
+        } else {
+            // Web browser - download via server
+            window.open('http://localhost:3000/api/download-results', '_blank');
+        }
     } catch (error) {
         console.error('Error exporting CSV:', error);
         alert('Erro ao exportar dados. Verifica se o servidor está a correr.');
     }
+}
+
+// Helper function to generate CSV content
+function generateCSVContent() {
+    let csv = 'Primeiro Nome,Último Nome,Escola,Ronda,Tipo,Resultado,Emocão/Pergunta,Data\n';
+
+    gameState.roundResults.forEach(result => {
+        csv += `${gameState.student.firstName},${gameState.student.lastName},${gameState.student.school},${result.round},${result.type},${result.success},${result.emotion},${result.timestamp}\n`;
+    });
+
+    // Add total score
+    csv += `\nTotal Score: ${gameState.score}/${gameState.totalRounds}\n`;
+
+    return csv;
 }
 
 // ===================================
