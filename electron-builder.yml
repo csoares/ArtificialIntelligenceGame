@@ -1,0 +1,44 @@
+# electron-builder.yml
+
+appId: com.ufp.emotionschallenge
+productName: Desafio das Emoções + IA
+copyright: Copyright © 2024 UFP
+directories:
+  output: dist-electron
+
+files:
+  - electron/**/*
+  - app.js
+  - index.html
+  - style.css
+  - server.js
+  - node_modules/**/*
+  - package.json
+
+extraResources:
+  - from: "./models"
+    to: "models"
+
+publish:
+  provider: github
+  owner: csoares
+  repo: SantoTirsoChallenge
+  releaseType: release
+
+win:
+  target: nsis
+  publisherName: UFP
+
+mac:
+  category: public.app-category.education
+  target: dmg
+
+linux:
+  target: AppImage
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Desafio das Emoções
