@@ -1,6 +1,6 @@
 {
   "name": "emotions-challenge-desktop",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Desafio das Emoções + IA - Desktop Application",
   "main": "electron/main.js",
   "homepage": "./",
@@ -67,12 +67,11 @@
     "mac": {
       "category": "public.app-category.education",
       "target": ["dmg", "zip"],
+      "identity": null,
       "extendInfo": {
         "NSCameraUsageDescription": "Esta aplicação necessita de acesso à câmara para detetar expressões faciais.",
         "NSMicrophoneUsageDescription": "Esta aplicação pode necessitar de acesso ao microfone."
-      },
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      }
     },
     "win": {
       "target": "nsis"
