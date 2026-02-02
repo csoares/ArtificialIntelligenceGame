@@ -13,6 +13,20 @@ let mainWindow;
 // Check for development mode
 const isDev = process.env.ELECTRON_IS_DEV === '1' || process.env.NODE_ENV === 'development';
 
+// Auto-updater setup (only in production)
+let autoUpdater = null;
+if (!isDev) {
+    try {
+        const { autoUpdater: updater } = require('electron-updater');
+        autoUpdater = updater;
+        autoUpdater.logger = require('electron-log');
+        autoUpdater.logger.transports.file.level = 'info';
+        console.log('Auto-updater initialized');
+    } catch (e) {
+        console.log('Auto-updater not available:', e.message);
+    }
+}
+
 function createWindow() {
     // Create browser window
     mainWindow = new BrowserWindow({
@@ -59,11 +73,15 @@ function createWindow() {
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
 
-        // Auto-updater temporarily disabled to ensure app starts
-        // TODO: Re-enable when properly configured
-        // if (!isDev && updaterAvailable) {
-        //     autoUpdater.checkForUpdatesAndNotify();
-        // }
+        // Check for updates in production
+        if (!isDev && autoUpdater) {
+            // Delay update check to let app fully load
+            setTimeout(() => {
+                autoUpdater.checkForUpdatesAndNotify().catch(err => {
+                    console.log('Update check failed:', err.message);
+                });
+            }, 3000);
+        }
     });
 
     // Handle window closed
@@ -102,19 +120,53 @@ app.on('window-all-closed', () => {
     }
 });
 
-// Auto-updater completely removed to prevent crashes
-// The code below is commented out
-/*
-if (false) { // Always false - auto-updater disabled
-    const autoUpdater = require('electron-updater');
-
+// Auto-updater event handlers
+if (autoUpdater) {
     autoUpdater.on('checking-for-update', () => {
         console.log('Checking for update...');
     });
 
-    // ... rest of auto-updater code removed
+    autoUpdater.on('update-available', (info) => {
+        console.log('Update available:', info.version);
+        if (mainWindow) {
+            mainWindow.webContents.send('update-available', info);
+        }
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+        console.log('Update not available, current version is latest');
+    });
+
+    autoUpdater.on('error', (err) => {
+        console.error('Auto-updater error:', err.message);
+    });
+
+    autoUpdater.on('download-progress', (progressObj) => {
+        console.log(`Download progress: ${progressObj.percent.toFixed(1)}%`);
+        if (mainWindow) {
+            mainWindow.webContents.send('download-progress', progressObj);
+        }
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+        console.log('Update downloaded:', info.version);
+        if (mainWindow) {
+            mainWindow.webContents.send('update-downloaded', info);
+            // Show dialog to restart
+            dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Atualização Disponível',
+                message: `Uma nova versão (${info.version}) foi transferida.`,
+                detail: 'A aplicação será reiniciada para aplicar a atualização.',
+                buttons: ['Reiniciar Agora', 'Mais Tarde']
+            }).then((result) => {
+                if (result.response === 0) {
+                    autoUpdater.quitAndInstall();
+                }
+            });
+        }
+    });
 }
-*/
 
 // IPC handlers for desktop features
 ipcMain.handle('get-app-version', () => {
