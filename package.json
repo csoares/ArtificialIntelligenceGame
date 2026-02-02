@@ -1,6 +1,6 @@
 {
   "name": "emotions-challenge-desktop",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Desafio das Emoções + IA - Desktop Application",
   "main": "electron/main.js",
   "homepage": "./",
