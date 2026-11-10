@@ -1765,7 +1765,8 @@ function startLieDetectorRound(reveal) {
 
         const done = () => {
             if (round.ended) return;
-            stage.hidden = true;
+            // The stage stays up until the next cover or the results replace it (nextRound/endGame
+            // hide it), so the game screen never flashes in between.
             endRound({
                 label: `Detetor de mentiras (${passed}/${total})`,
                 success: win,
