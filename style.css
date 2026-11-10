@@ -706,10 +706,12 @@ h1 {
     display: grid;
     place-items: center;
     padding: 24px;
-    background: rgba(245, 245, 247, 0.55);
-    backdrop-filter: blur(22px) saturate(160%);
-    -webkit-backdrop-filter: blur(22px) saturate(160%);
-    animation: fadeOnly var(--dur-base) var(--ease-out);
+    /* Opaque and shown instantly: the next round is set up behind the cover, and a fade-in or a
+       see-through background would show it before the cover. Only the card animates. */
+    background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(45, 95, 63, 0.10), transparent 60%),
+        radial-gradient(900px 500px at 110% 110%, rgba(244, 196, 48, 0.12), transparent 60%),
+        var(--bg);
 }
 
 .round-intro-card {
@@ -782,6 +784,10 @@ h1 {
         radial-gradient(900px 600px at 50% 40%, #1c1c1e 0%, #050506 70%),
         #050506;
     transition: background-color var(--dur-base) ease-out;
+    /* No fade-in on the stage itself (the game screen would show through); the panels animate */
+}
+
+.lie-stage:not([hidden]) .lie-panel {
     animation: fadeOnly var(--dur-base) var(--ease-out);
 }
 
