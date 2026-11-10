@@ -89,18 +89,6 @@
                     <!-- Sequência relâmpago -->
                     <div id="sequence-track" class="sequence-track"></div>
 
-                    <!-- Detetor de mentiras -->
-                    <div id="lie-box" class="lie-box">
-                        <div id="lie-dots" class="lie-dots"></div>
-                        <div id="lie-question" class="lie-question"></div>
-                        <div class="lie-meter">
-                            <span class="lie-meter-label">Nervosismo</span>
-                            <span class="lie-meter-track"><span id="lie-meter-fill" class="lie-meter-fill"></span></span>
-                            <span id="lie-meter-value" class="lie-meter-value">0%</span>
-                        </div>
-                        <div id="lie-verdict" class="lie-verdict"></div>
-                    </div>
-                    <div id="lie-reveal" class="lie-reveal"></div>
 
                     <div id="detected-emotion" class="detected-emotion">A detetar...</div>
                     <div id="emotion-bars" class="emotion-bars"></div>
@@ -174,6 +162,48 @@
             <button id="play-again-btn" class="btn btn-primary">Jogar Novamente</button>
             <p class="save-notice" id="save-notice"></p>
             <p class="ufp-promo">🎓 Gostaste? Explora Engenharia Informática na UFP!</p>
+        </div>
+    </div>
+
+    <!-- Round intro card (title, instructions, 3-2-1) -->
+    <div id="round-intro" class="round-intro" hidden>
+        <div class="round-intro-card">
+            <div id="intro-emoji" class="intro-emoji"></div>
+            <h2 id="intro-title" class="intro-title"></h2>
+            <p id="intro-text" class="intro-text"></p>
+            <div id="intro-countdown" class="intro-countdown"></div>
+        </div>
+    </div>
+
+    <!-- Detetor de mentiras: full-screen stage (camera keeps running underneath) -->
+    <div id="lie-stage" class="lie-stage" data-panel="intro" hidden>
+        <div class="lie-panel lie-intro">
+            <div class="lie-siren">🚨</div>
+            <h2>Detetor de mentiras</h2>
+            <ol class="lie-rules">
+                <li><span>Vão aparecer <strong><span id="lie-rule-count">3</span> perguntas</strong>, uma de cada vez.</span></li>
+                <li><span>Responde sempre <strong>"NÃO"</strong> em voz alta. Mesmo que seja mentira.</span></li>
+                <li><span>A IA vai estar a analisar a tua cara à procura de sinais de mentira.</span></li>
+                <li><span>Se reagires… <strong>🚨 apanhado!</strong> Mantém a cara de poker.</span></li>
+            </ol>
+            <button id="lie-ready-btn" class="btn btn-danger">Estou pronto 😐</button>
+        </div>
+
+        <div class="lie-panel lie-play">
+            <div id="lie-question" class="lie-question"></div>
+            <div id="lie-verdict" class="lie-verdict"></div>
+            <div class="lie-footer">
+                <span class="rec-dot"></span>
+                <span id="lie-status" class="lie-status"></span>
+                <span id="lie-dots" class="lie-dots"></span>
+            </div>
+        </div>
+
+        <div class="lie-panel lie-end">
+            <div id="lie-score-title" class="lie-score-title"></div>
+            <div id="lie-score-detail" class="lie-score-detail"></div>
+            <p id="lie-reveal" class="lie-reveal" hidden></p>
+            <button id="lie-continue-btn" class="btn btn-light">Continuar</button>
         </div>
     </div>
 
