@@ -35,6 +35,9 @@ if (!isDev) {
         autoUpdater = updater;
         autoUpdater.logger = require('electron-log');
         autoUpdater.logger.transports.file.level = 'info';
+        // We ask the user before downloading (see promptForUpdate)
+        autoUpdater.autoDownload = false;
+        autoUpdater.autoInstallOnAppQuit = true;
         console.log('Auto-updater initialized');
     } catch (e) {
         console.log('Auto-updater not available:', e.message);
@@ -87,14 +90,10 @@ function createWindow() {
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
 
-        // Check for updates in production
+        // Check for updates in production: shortly after start, then periodically
         if (!isDev && autoUpdater) {
-            // Delay update check to let app fully load
-            setTimeout(() => {
-                autoUpdater.checkForUpdatesAndNotify().catch(err => {
-                    console.log('Update check failed:', err.message);
-                });
-            }, 3000);
+            setTimeout(checkForUpdates, 3000);
+            setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS);
         }
     });
 
@@ -166,7 +165,120 @@ app.on('window-all-closed', () => {
     }
 });
 
-// Auto-updater event handlers
+// ===================================
+// AUTO-UPDATE
+// Every push to main publishes a GitHub release (see .github/workflows/release.yml).
+// The app checks for it on start and every few hours, asks the user (never mid-game),
+// then downloads, installs and restarts on every platform:
+// - Windows / Linux: electron-updater's own installer.
+// - macOS: builds are unsigned and Squirrel.Mac refuses unsigned updates, so
+//   electron/mac-updater.js swaps the .app bundle itself.
+// ===================================
+
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const IDLE_RETRY_MS = 60 * 1000;                      // retry the prompt every minute while a game is running
+const RELEASES_URL = 'https://github.com/csoares/ArtificialIntelligenceGame/releases/latest';
+const IS_MAC = process.platform === 'darwin';
+const macUpdater = IS_MAC ? require('./mac-updater') : null;
+
+let updatePromptOpen = false;
+let updateDownloading = false;
+
+function checkForUpdates() {
+    if (!autoUpdater || updatePromptOpen || updateDownloading) return;
+    autoUpdater.checkForUpdates().catch(err => {
+        console.log('Update check failed:', err.message);
+    });
+}
+
+// True while a game round is running in the renderer (don't interrupt players)
+async function isGameRunning() {
+    if (!mainWindow) return false;
+    try {
+        return await mainWindow.webContents.executeJavaScript(
+            "typeof gameState !== 'undefined' && gameState.isPlaying === true", true);
+    } catch (e) {
+        return false;
+    }
+}
+
+async function promptForUpdate(info) {
+    if (!mainWindow || updatePromptOpen || updateDownloading) return;
+
+    if (await isGameRunning()) {
+        setTimeout(() => promptForUpdate(info), IDLE_RETRY_MS);
+        return;
+    }
+
+    // On macOS the app must live somewhere it can overwrite itself (e.g. /Applications)
+    const macBundle = IS_MAC ? macUpdater.currentAppBundle() : null;
+    const macCheck = IS_MAC ? macUpdater.canReplace(macBundle) : { ok: true };
+
+    updatePromptOpen = true;
+    const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Nova versão disponível',
+        message: `Está disponível a versão ${info.version} (tens a ${app.getVersion()}).`,
+        detail: macCheck.ok
+            ? 'A atualização é transferida agora e a aplicação reinicia sozinha quando terminar.'
+            : 'Para se atualizar sozinha, a aplicação tem de estar na pasta Aplicações. ' +
+              'Podes instalar esta versão à mão a partir da página de download.',
+        buttons: [macCheck.ok ? 'Atualizar agora' : 'Abrir página de download', 'Mais tarde'],
+        defaultId: 0,
+        cancelId: 1
+    });
+    updatePromptOpen = false;
+
+    if (response !== 0) return; // asked again on the next periodic check
+
+    if (!macCheck.ok) {
+        shell.openExternal(RELEASES_URL);
+        return;
+    }
+
+    updateDownloading = true;
+
+    if (IS_MAC) {
+        installMacUpdate(info, macBundle);
+        return;
+    }
+
+    autoUpdater.downloadUpdate().catch(showUpdateError);
+}
+
+async function installMacUpdate(info, bundle) {
+    try {
+        const prepared = await macUpdater.prepareUpdate(info, {
+            onProgress: progress => {
+                if (mainWindow) mainWindow.setProgressBar(progress);
+            }
+        });
+        if (mainWindow) mainWindow.setProgressBar(-1);
+        macUpdater.installAndRelaunch(prepared, bundle);
+        app.quit(); // the swap script waits for us to exit, replaces the app and reopens it
+    } catch (err) {
+        showUpdateError(err);
+    }
+}
+
+function showUpdateError(err) {
+    console.error('Update failed:', err);
+    updateDownloading = false;
+    if (!mainWindow) return;
+    mainWindow.setProgressBar(-1);
+    dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Erro na atualização',
+        message: 'Não foi possível instalar a atualização.',
+        detail: `${err.message}\n\nPodes instalar a nova versão à mão a partir da página de download.`,
+        buttons: ['Abrir página de download', 'Fechar'],
+        defaultId: 0,
+        cancelId: 1
+    }).then(({ response }) => {
+        if (response === 0) shell.openExternal(RELEASES_URL);
+    });
+}
+
 if (autoUpdater) {
     autoUpdater.on('checking-for-update', () => {
         console.log('Checking for update...');
@@ -177,9 +289,10 @@ if (autoUpdater) {
         if (mainWindow) {
             mainWindow.webContents.send('update-available', info);
         }
+        promptForUpdate(info);
     });
 
-    autoUpdater.on('update-not-available', (info) => {
+    autoUpdater.on('update-not-available', () => {
         console.log('Update not available, current version is latest');
     });
 
@@ -190,27 +303,20 @@ if (autoUpdater) {
     autoUpdater.on('download-progress', (progressObj) => {
         console.log(`Download progress: ${progressObj.percent.toFixed(1)}%`);
         if (mainWindow) {
+            mainWindow.setProgressBar(progressObj.percent / 100);
             mainWindow.webContents.send('download-progress', progressObj);
         }
     });
 
     autoUpdater.on('update-downloaded', (info) => {
         console.log('Update downloaded:', info.version);
+        updateDownloading = false;
         if (mainWindow) {
+            mainWindow.setProgressBar(-1);
             mainWindow.webContents.send('update-downloaded', info);
-            // Show dialog to restart
-            dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: 'Atualização Disponível',
-                message: `Uma nova versão (${info.version}) foi transferida.`,
-                detail: 'A aplicação será reiniciada para aplicar a atualização.',
-                buttons: ['Reiniciar Agora', 'Mais Tarde']
-            }).then((result) => {
-                if (result.response === 0) {
-                    autoUpdater.quitAndInstall();
-                }
-            });
         }
+        // The user already chose to update, so restart straight away
+        setImmediate(() => autoUpdater.quitAndInstall());
     });
 }
 

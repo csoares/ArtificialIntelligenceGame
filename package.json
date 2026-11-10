@@ -1,6 +1,6 @@
 {
   "name": "emotions-challenge-desktop",
-  "version": "1.0.10",
+  "version": "2.0.0",
   "description": "Desafio das Emoções + IA - Desktop Application",
   "main": "electron/main.js",
   "homepage": "./",
@@ -47,9 +47,11 @@
     "directories": {
       "output": "dist-electron"
     },
+    "afterPack": "build/adhoc-sign.js",
     "files": [
       "electron/**/*",
       "lib/**/*",
+      "assets/favicon.png",
       "app.js",
       "config.js",
       "index.html",
@@ -66,7 +68,10 @@
     ],
     "mac": {
       "category": "public.app-category.education",
-      "target": ["dmg", "zip"],
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
       "identity": null,
       "extendInfo": {
         "NSCameraUsageDescription": "Esta aplicação necessita de acesso à câmara para detetar expressões faciais.",
@@ -87,12 +92,13 @@
       {
         "provider": "github",
         "owner": "csoares",
-        "repo": "SantoTirsoChallenge"
+        "repo": "ArtificialIntelligenceGame",
+        "releaseType": "release"
       }
     ]
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/csoares/SantoTirsoChallenge.git"
+    "url": "https://github.com/csoares/ArtificialIntelligenceGame.git"
   }
 }
