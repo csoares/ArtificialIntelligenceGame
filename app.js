@@ -49,6 +49,30 @@ const ROUND_TYPE_LABELS = {
     quiz: '🧠 Pergunta'
 };
 
+// Intro card shown before each round (the lie detector has its own full-screen intro)
+const ROUND_INTROS = {
+    emotion: {
+        emoji: '😄',
+        title: 'Mostra a emoção',
+        text: 'Faz a cara pedida e aguenta-a 1 segundo. Quanto mais depressa, mais pontos.'
+    },
+    sequence: {
+        emoji: '⚡',
+        title: 'Sequência relâmpago',
+        text: '5 emoções seguidas, sem parar. És mais rápido do que a IA?'
+    },
+    trick: {
+        emoji: '🎭',
+        title: 'Engana a IA',
+        text: 'Mostra a emoção pedida, mas cumprindo a regra. Será que a IA cai?'
+    },
+    quiz: {
+        emoji: '🧠',
+        title: 'Pergunta',
+        text: 'Escolhe a resposta certa antes de o tempo acabar.'
+    }
+};
+
 // Order of rounds in one game (~5 minutes). Quiz questions are picked at random each game.
 const GAME_PLAN = [
     ROUND_TYPES.EMOTION,
@@ -65,13 +89,17 @@ const GAME_PLAN = [
 
 // Round durations (seconds)
 const DURATION = {
-    emotion: 20,
-    trick: 20,
-    sequence: 30,
-    lie_detector: 18,       // 3 questions x 6s
-    quiz: 20,
-    code: 30
+    emotion: 30,
+    trick: 30,
+    sequence: 45,
+    quiz: 30,
+    code: 45
 };
+
+// Round intro card (title + instructions + 3-2-1)
+const INTRO_READ_MS_FIRST = 3500;     // first time a round type appears: time to read before the countdown
+const INTRO_READ_MS = 1200;           // later times
+const ROUND_RESULT_MS = 2600;         // how long the end-of-round feedback stays on screen
 
 const MAX_POINTS_PER_ROUND = 100;
 const MAX_POINTS = GAME_PLAN.length * MAX_POINTS_PER_ROUND;
@@ -84,12 +112,16 @@ const HOLD_MS = 1000;                 // hold time for emotion/trick rounds
 const SEQUENCE_LENGTH = 5;
 const SEQUENCE_HOLD_MS = 600;         // hold time for each emotion in the sequence
 const LIE_QUESTIONS_PER_ROUND = 3;
-const LIE_QUESTION_MS = 6000;         // time each question stays on screen
+const LIE_QUESTION_MS = 10000;        // max time each question stays on screen while the AI watches
+const LIE_CAUGHT_HOLD_MS = 4000;      // after "MENTIRA DETETADA", stay on it to enjoy the reaction
+const LIE_RESULT_MS = 2200;           // "Cara de poker" feedback before the next question
+const LIE_INTRO_AUTOSTART_MS = 45000; // start anyway if nobody presses "Estou pronto"
+const LIE_END_AUTOCONTINUE_MS = 7000;
+const LIE_REVEAL_AUTOCONTINUE_MS = 35000;
 const NERVOUS_THRESHOLD = 0.65;       // "nervousness" (1 - neutral, smoothed) that triggers the alarm
 const NERVOUS_HOLD_MS = 500;          // how long it must stay above the threshold (talking shouldn't trigger it)
 const NERVOUS_SMOOTHING = 0.35;       // exponential smoothing factor for the meter (0-1, higher = jumpier)
 const LIE_MIN_FACE_RATIO = 0.5;       // a question only counts if the face was visible in >= 50% of frames
-const LIE_REVEAL_MS = 9000;           // how long the final "reveal" stays on screen
 
 // ===================================
 // CONTENT
@@ -294,23 +326,31 @@ const TRICK_CHALLENGES = [
     }
 ];
 
-// "Detetor de Mentiras": light, school-appropriate questions. The player always answers "não" out loud.
+// "Detetor de Mentiras": questions meant to get a reaction from 15-17 year-olds (with friends
+// watching), but fine for a school event. The player always answers "não" out loud.
 const LIE_QUESTIONS = [
     'Já fingiste estar doente para faltar a um teste?',
-    'Já disseste que leste um livro sem o teres lido?',
-    'Já mandaste uma mensagem à pessoa errada?',
-    'Já copiaste os TPC de um colega?',
-    'Já fingiste que a internet foi abaixo para sair de uma videochamada?',
-    'Já te riste de uma piada que não percebeste?',
-    'Já disseste "estou quase a chegar" quando ainda estavas em casa?',
-    'Já comeste a última fatia sem perguntar a ninguém?',
-    'Já disseste "estou a estudar" quando estavas no telemóvel?',
-    'Já usaste uma IA para fazer um trabalho da escola?',
-    'Já ouviste uma mensagem de voz em velocidade 2x?',
-    'Já fingiste que não viste uma mensagem?',
+    'Já copiaste num teste?',
+    'Já disseste "estou quase a chegar" quando ainda estavas na cama?',
+    'Já mandaste uma mensagem à pessoa errada… sobre essa mesma pessoa?',
+    'Já viste o Instagram de alguém até às fotos de 2019?',
     'Já deste like sem querer numa foto antiga de alguém?',
-    'Já fingiste estar a dormir para não ajudar em casa?',
-    'Já disseste "vi agora a tua mensagem" e era mentira?'
+    'Já tiveste uma crush por alguém da tua turma?',
+    'Gostas de alguém que está aqui agora?',
+    'Já usaste uma IA para fazer um trabalho e disseste que foste tu?',
+    'Já deixaste alguém no "visto" de propósito?',
+    'Já disseste "vou só ver um vídeo" e ficaste lá duas horas?',
+    'Já ficaste acordado até às 4h a ver vídeos?',
+    'Já fingiste que estavas a prestar atenção na aula?',
+    'Já culpaste outra pessoa por uma coisa que foste tu a fazer?',
+    'Já fingiste que gostaste de uma prenda?',
+    'Já disseste aos teus pais que estavas num sítio e estavas noutro?',
+    'Já choraste a ver um filme de animação?',
+    'Já ensaiaste uma conversa em frente ao espelho?',
+    'Já tiraste mais de 20 selfies para publicar só uma?',
+    'Já disseste "vi agora a tua mensagem" e era mentira?',
+    'Já fingiste estar ao telemóvel para evitar falar com alguém?',
+    'Já cantaste no duche como se estivesses num concerto?'
 ];
 
 const LIE_REVEAL = 'Calma! A IA não detetou mentira nenhuma: só mediu se a tua cara saiu do neutro. ' +
@@ -448,6 +488,7 @@ const sfx = (() => {
         pop: () => { tone('square', 900, 1500, 0.07, 0.08); },
         alarm: () => { [0, 0.25, 0.5].forEach(d => { tone('square', 880, 660, 0.22, 0.09, d); }); },
         tick: () => { tone('sine', 1200, 1200, 0.05, 0.06); },
+        go: () => { tone('sine', 1600, 1600, 0.18, 0.08); },
         success: () => { tone('triangle', 523, 523, 0.12, 0.15); tone('triangle', 784, 784, 0.25, 0.15, 0.12); },
         fail: () => { tone('sawtooth', 220, 110, 0.4, 0.1); }
     };
@@ -600,6 +641,7 @@ function startGame() {
     gameState.round = null;
     gameState.plan = createGamePlan();
     gameState.lieQueue = shuffleArray(LIE_QUESTIONS);
+    gameState.introSeen = new Set();
 
     updateScoreDisplay();
     nextRound();
@@ -619,6 +661,24 @@ function nextRound() {
     $('round-type-label').textContent = ROUND_TYPE_LABELS[roundConfig.type];
     resetChallengeBox();
 
+    // The lie detector has its own full-screen intro
+    if (roundConfig.type === ROUND_TYPES.LIE) {
+        startRoundOfType(roundConfig);
+        return;
+    }
+
+    if (roundConfig.type === ROUND_TYPES.QUIZ) {
+        showQuizStage();
+    } else {
+        showCameraStage();
+    }
+    const round = gameState.round;
+    showRoundIntro(roundConfig.type).then(() => {
+        if (gameState.round === round && !round.ended) startRoundOfType(roundConfig);
+    });
+}
+
+function startRoundOfType(roundConfig) {
     switch (roundConfig.type) {
         case ROUND_TYPES.EMOTION:
             startEmotionRound();
@@ -638,13 +698,58 @@ function nextRound() {
     }
 }
 
+/**
+ * Intro card: emoji, title, one-line instructions, then 3-2-1.
+ * The first time a round type appears there is extra time to read.
+ */
+function showRoundIntro(type) {
+    const intro = ROUND_INTROS[type];
+    const first = !gameState.introSeen.has(type);
+    gameState.introSeen.add(type);
+
+    $('intro-emoji').textContent = intro.emoji;
+    $('intro-title').textContent = intro.title;
+    $('intro-text').textContent = intro.text;
+    $('intro-countdown').textContent = '';
+    $('round-intro').hidden = false;
+
+    return new Promise(resolve => {
+        const readMs = first ? INTRO_READ_MS_FIRST : INTRO_READ_MS;
+        ['3', '2', '1'].forEach((n, i) => {
+            gameState.roundTimers.push(setTimeout(() => {
+                setCountdown($('intro-countdown'), n);
+                sfx.play('tick');
+            }, readMs + i * 1000));
+        });
+        gameState.roundTimers.push(setTimeout(() => {
+            $('round-intro').hidden = true;
+            sfx.play('go');
+            resolve();
+        }, readMs + 3000));
+    });
+}
+
+function setCountdown(el, text) {
+    el.textContent = text;
+    el.classList.remove('pop');
+    void el.offsetWidth; // restart animation
+    el.classList.add('pop');
+}
+
 // Hide every round-specific element so each round only shows what it needs
 function resetChallengeBox() {
+    $('round-intro').hidden = true;
+    $('lie-stage').hidden = true;
     $('challenge-rule').style.display = 'none';
     $('sequence-track').style.display = 'none';
     $('sequence-track').innerHTML = '';
-    $('lie-box').style.display = 'none';
-    $('lie-reveal').style.display = 'none';
+    $('challenge-title').textContent = '';
+    $('target-emotion').textContent = '';
+    $('educational-note').textContent = '';
+    $('quiz-question').textContent = '';
+    $('quiz-options').innerHTML = '';
+    $('code-block').style.display = 'none';
+    $('quiz-explanation').style.display = 'none';
     $('target-emotion').style.display = '';
     $('target-emotion').classList.remove('is-win', 'is-lose');
     $('round-feedback').className = 'round-feedback';
@@ -660,7 +765,7 @@ function updateScoreDisplay() {
  * Finish the current round exactly once.
  * outcome: 'win' | 'lose' | 'neutral' (quiz rounds show their own feedback)
  */
-function endRound({ label, success, points, outcome = 'neutral', message = '', delay = 1800 }) {
+function endRound({ label, success, points, outcome = 'neutral', message = '', delay = ROUND_RESULT_MS }) {
     const round = gameState.round;
     if (!round || round.ended) return;
     round.ended = true;
@@ -1116,141 +1221,187 @@ function startSequenceRound() {
 // ===================================
 
 /**
- * The AI "pretends" to be a lie detector. The player answers "não" out loud to each question
- * and must keep a poker face. "Nervousness" is simply 1 - neutral (smoothed): if it stays above
- * NERVOUS_THRESHOLD for NERVOUS_HOLD_MS, the alarm goes off for that question.
- * Questions advance on fixed 6s slots so the round always lasts the same time.
+ * The AI "pretends" to be a lie detector, on a full-screen dark stage (no camera, no bars).
+ * 1. Intro explains the rules; "Estou pronto" (or a timeout) starts a 3-2-1.
+ * 2. Each question stays up to LIE_QUESTION_MS while the AI watches. "Nervousness" is simply
+ *    1 - neutral (smoothed); above NERVOUS_THRESHOLD for NERVOUS_HOLD_MS -> "MENTIRA DETETADA",
+ *    which stays on screen LIE_CAUGHT_HOLD_MS so everyone can enjoy the reaction.
+ * 3. The end panel shows the score; the last lie round of the game also shows LIE_REVEAL.
  */
 function startLieDetectorRound(reveal) {
-    showCameraStage();
-
-    $('challenge-title').textContent = 'Detetor de mentiras: responde "NÃO" a tudo!';
+    const round = gameState.round;
+    showCameraStage(); // the video keeps playing behind the stage, the AI still sees the player
     $('target-emotion').style.display = 'none';
-    $('educational-note').textContent = 'A IA está a analisar as tuas micro-expressões... Mantém a cara de poker!';
-    $('lie-box').style.display = 'block';
 
     if (gameState.lieQueue.length < LIE_QUESTIONS_PER_ROUND) {
         gameState.lieQueue = shuffleArray(LIE_QUESTIONS);
     }
     const questions = gameState.lieQueue.splice(0, LIE_QUESTIONS_PER_ROUND);
-
-    // Per-question state
     const results = [];        // 'pass' | 'caught' | 'noface'
+
+    const stage = $('lie-stage');
+    const showPanel = panel => { stage.dataset.panel = panel; };
+    stage.classList.remove('alarm', 'passed');
+    stage.hidden = false;
+    showPanel('intro');
+    $('lie-rule-count').textContent = questions.length;
+    $('lie-dots').innerHTML = questions.map(() => '<span class="lie-dot"></span>').join('');
+
     let index = -1;
-    let caught = false;
+    let phase = 'intro';       // intro | countdown | asking | caught | result | done
     let framesTotal = 0;
     let framesWithFace = 0;
     let nervous = 0;
     let nervousSince = null;
+    let questionTimer = null;
 
-    const dots = $('lie-dots');
-    dots.innerHTML = questions.map(() => '<span class="lie-dot"></span>').join('');
-
-    const setVerdict = (text, kind) => {
-        const verdict = $('lie-verdict');
-        verdict.textContent = text;
-        verdict.className = `lie-verdict ${kind || ''}`;
+    const later = (fn, ms) => {
+        const id = setTimeout(fn, ms);
+        gameState.roundTimers.push(id);
+        return id;
     };
 
-    const finishQuestion = () => {
-        if (index < 0) return;
-        let result = 'pass';
-        if (caught) result = 'caught';
-        else if (framesTotal === 0 || framesWithFace / framesTotal < LIE_MIN_FACE_RATIO) result = 'noface';
-        results.push(result);
-        dots.children[index].className = `lie-dot ${result}`;
+    const setVerdict = (text, kind = '') => {
+        $('lie-verdict').textContent = text;
+        $('lie-verdict').className = `lie-verdict ${kind}`;
     };
 
-    const nextQuestion = () => {
-        finishQuestion();
-        index++;
-        if (index >= questions.length) return;
+    const markDot = (i, cls) => {
+        const dot = $('lie-dots').children[i];
+        if (dot) dot.className = `lie-dot ${cls}`;
+    };
 
-        caught = false;
+    const askQuestion = i => {
+        if (round.ended) return;
+        if (i >= questions.length) {
+            finish();
+            return;
+        }
+        index = i;
+        phase = 'asking';
         framesTotal = 0;
         framesWithFace = 0;
+        nervous = 0;
         nervousSince = null;
 
-        $('lie-question').textContent = questions[index];
-        $('lie-question').classList.remove('appear');
-        void $('lie-question').offsetWidth; // restart animation
-        $('lie-question').classList.add('appear');
-        setVerdict('Responde "NÃO" em voz alta!', '');
-        [...dots.children].forEach((dot, i) => dot.classList.toggle('current', i === index));
+        stage.classList.remove('alarm', 'passed');
+        const question = $('lie-question');
+        question.textContent = questions[i];
+        question.classList.remove('appear');
+        void question.offsetWidth; // restart animation
+        question.classList.add('appear');
+        setVerdict('Responde "NÃO" em voz alta…', 'hint');
+        $('lie-status').textContent = 'A IA está a analisar a tua cara…';
+        markDot(i, 'current');
         sfx.play('tick');
+
+        questionTimer = later(resolveQuestion, LIE_QUESTION_MS);
     };
 
-    const updateMeter = () => {
-        const pct = Math.round(nervous * 100);
-        $('lie-meter-fill').style.width = `${pct}%`;
-        $('lie-meter-fill').classList.toggle('danger', nervous > NERVOUS_THRESHOLD);
-        $('lie-meter-value').textContent = `${pct}%`;
+    const resolveQuestion = () => {
+        if (phase !== 'asking') return;
+        phase = 'result';
+        const sawFace = framesTotal > 0 && framesWithFace / framesTotal >= LIE_MIN_FACE_RATIO;
+        const result = sawFace ? 'pass' : 'noface';
+        results.push(result);
+        markDot(index, result);
+        if (sawFace) {
+            stage.classList.add('passed');
+            setVerdict('😐 Cara de poker. Desta escapaste…', 'pass');
+        } else {
+            setVerdict('👀 Não te consegui ver. Esta não conta!', 'noface');
+        }
+        later(() => askQuestion(index + 1), LIE_RESULT_MS);
     };
 
-    nextQuestion();
-    for (let i = 1; i < questions.length; i++) {
-        gameState.roundTimers.push(setTimeout(nextQuestion, i * LIE_QUESTION_MS));
-    }
+    const caught = () => {
+        phase = 'caught';
+        clearTimeout(questionTimer);
+        results.push('caught');
+        markDot(index, 'caught');
+        stage.classList.add('alarm');
+        setVerdict('🚨 MENTIRA DETETADA 🚨', 'caught');
+        $('lie-status').textContent = 'A tua cara denunciou-te…';
+        sfx.play('alarm');
+        later(() => sfx.play('alarm'), 1300);
+        later(() => askQuestion(index + 1), LIE_CAUGHT_HOLD_MS);
+    };
 
-    startDetectionLoop((expressions, fresh) => {
-        if (!fresh) return {};
+    const onFrame = (expressions, fresh) => {
+        if (phase !== 'asking') return {};
+        if (expressions && !fresh) return {}; // reused (anti-flicker) frame: ignore
+
         framesTotal++;
-
         if (!expressions) {
-            if (!caught) setVerdict('👀 Mostra a cara! Sem cara não há prova...', 'warn');
+            $('lie-status').textContent = '👀 Não te estou a ver. Olha para a câmara!';
+            nervousSince = null;
             return {};
         }
         framesWithFace++;
+        $('lie-status').textContent = 'A IA está a analisar a tua cara…';
 
         const raw = 1 - (expressions.neutral || 0);
-        nervous = nervous + NERVOUS_SMOOTHING * (raw - nervous);
-        updateMeter();
-
-        if (caught) return { state: 'warn' };
-
+        nervous += NERVOUS_SMOOTHING * (raw - nervous);
         if (nervous > NERVOUS_THRESHOLD) {
             const now = Date.now();
             if (nervousSince === null) nervousSince = now;
-            if (now - nervousSince >= NERVOUS_HOLD_MS) {
-                caught = true;
-                setVerdict('🚨 MENTIRA DETETADA! 🚨', 'caught');
-                $('video-container').classList.add('alarm');
-                gameState.roundTimers.push(setTimeout(() => $('video-container').classList.remove('alarm'), 1200));
-                sfx.play('alarm');
-            }
-            return { state: 'warn' };
+            if (now - nervousSince >= NERVOUS_HOLD_MS) caught();
+        } else {
+            nervousSince = null;
         }
+        return {};
+    };
 
-        nervousSince = null;
-        setVerdict('😐 Cara de poker... por enquanto', 'ok');
-        return { state: 'match' };
-    });
+    const begin = () => {
+        if (phase !== 'intro' || round.ended) return;
+        phase = 'countdown';
+        sfx.unlock();
+        showPanel('play');
+        stage.classList.remove('alarm', 'passed');
+        setVerdict('');
+        $('lie-status').textContent = 'Prepara a tua cara de poker…';
+        ['3', '2', '1'].forEach((n, i) => later(() => {
+            setCountdown($('lie-question'), n);
+            sfx.play('tick');
+        }, i * 1000));
+        later(() => {
+            startDetectionLoop(onFrame);
+            askQuestion(0);
+        }, 3000);
+    };
 
-    startRoundTimer(DURATION.lie_detector, () => {
-        finishQuestion();
-        index = questions.length; // stop any late question switch
+    const finish = () => {
+        phase = 'done';
+        stopDetectionLoop();
+        stage.classList.remove('alarm', 'passed');
 
         const passed = results.filter(r => r === 'pass').length;
         const total = questions.length;
         const win = passed >= Math.ceil(total / 2);
 
-        if (reveal) {
-            $('lie-box').style.display = 'none';
-            $('challenge-title').textContent = '🤯 A verdade sobre o detetor de mentiras';
-            $('educational-note').textContent = 'Reconhecer uma expressão não é o mesmo que saber o que pensas ou sentes.';
-            $('lie-reveal').textContent = LIE_REVEAL;
-            $('lie-reveal').style.display = 'block';
-        }
+        $('lie-score-title').textContent = win ? '😐 Cara de poker!' : '🚨 Apanhado!';
+        $('lie-score-detail').textContent = `${passed} de ${total} perguntas sem seres apanhado`;
+        $('lie-reveal').hidden = !reveal;
+        if (reveal) $('lie-reveal').textContent = LIE_REVEAL;
+        showPanel('end');
+        sfx.play(win ? 'success' : 'fail');
 
-        endRound({
-            label: `Detetor de mentiras (${passed}/${total} sem ser apanhado)`,
-            success: win,
-            points: (MAX_POINTS_PER_ROUND * passed) / total,
-            outcome: win ? 'win' : 'lose',
-            message: win ? `😐 Cara de poker! ${passed}/${total}` : `🚨 Apanhado! ${passed}/${total}`,
-            delay: reveal ? LIE_REVEAL_MS : 2000
-        });
-    });
+        const done = () => {
+            if (round.ended) return;
+            stage.hidden = true;
+            endRound({
+                label: `Detetor de mentiras (${passed}/${total} sem ser apanhado)`,
+                success: win,
+                points: (MAX_POINTS_PER_ROUND * passed) / total,
+                delay: 300
+            });
+        };
+        $('lie-continue-btn').onclick = done;
+        later(done, reveal ? LIE_REVEAL_AUTOCONTINUE_MS : LIE_END_AUTOCONTINUE_MS);
+    };
+
+    $('lie-ready-btn').onclick = begin;
+    later(begin, LIE_INTRO_AUTOSTART_MS);
 }
 
 function clearRoundTimers() {
@@ -1318,7 +1469,7 @@ function answerQuiz(selected, correct, question) {
         label: question.code ? 'Desafio de código' : 'Pergunta',
         success,
         points: success ? MAX_POINTS_PER_ROUND : 0,
-        delay: 3500
+        delay: 4500
     });
 }
 
@@ -1332,6 +1483,8 @@ function endGame() {
     stopDetectionLoop();
     clearInterval(gameState.roundTimer);
     clearRoundTimers();
+    $('round-intro').hidden = true;
+    $('lie-stage').hidden = true;
 
     showScreen('results-screen');
 

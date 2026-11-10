@@ -454,15 +454,6 @@ h1 {
     background: rgba(215, 0, 21, 0.40);
 }
 
-.video-container.alarm {
-    box-shadow: 0 0 0 5px var(--danger-fill);
-    animation: alarmFlash 0.3s step-end 4;
-}
-
-@keyframes alarmFlash {
-    50% { box-shadow: 0 0 0 5px transparent; }
-}
-
 /* Side panel */
 .challenge-box {
     background: var(--fill);
@@ -675,30 +666,293 @@ h1 {
 }
 
 /* ===================================
-   Detetor de mentiras (dark material)
+   Round intro card (title + instructions + 3-2-1)
    =================================== */
 
-.lie-box {
-    display: none;
-    background: var(--dark-surface);
+[hidden] {
+    display: none !important;
+}
+
+.round-intro {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(245, 245, 247, 0.55);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    animation: fadeOnly var(--dur-base) var(--ease-out);
+}
+
+.round-intro-card {
+    width: min(560px, 100%);
+    background: var(--surface);
+    border-radius: var(--radius-xl);
+    padding: 40px 48px 32px;
+    text-align: center;
+    box-shadow: var(--shadow-card);
+    animation: materialize var(--dur-base) var(--ease-out);
+}
+
+.intro-emoji {
+    font-size: 4.5rem;
+    line-height: 1;
+    margin-bottom: 14px;
+}
+
+.intro-title {
+    font-family: var(--font-display);
+    font-size: 2.3rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    color: var(--label);
+}
+
+.intro-text {
+    font-size: 1.2rem;
+    color: var(--label-2);
+    line-height: 1.45;
+    margin-top: 10px;
+}
+
+.intro-countdown {
+    font-family: var(--font-display);
+    font-size: 4rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    height: 1.2em;
+    margin-top: 12px;
+}
+
+.pop {
+    animation: countPop 0.6s var(--ease-out);
+}
+
+@keyframes countPop {
+    from { transform: scale(1.6); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+/* ===================================
+   Detetor de mentiras: full-screen dark stage
+   =================================== */
+
+.lie-stage {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: center;
+    padding: 48px 6vw 110px;
     color: white;
-    border-radius: var(--radius-md);
-    padding: 16px;
-    margin-bottom: 10px;
+    text-align: center;
+    background:
+        radial-gradient(900px 600px at 50% 40%, #1c1c1e 0%, #050506 70%),
+        #050506;
+    transition: background-color var(--dur-base) ease-out;
+    animation: fadeOnly var(--dur-base) var(--ease-out);
+}
+
+.lie-panel {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 980px;
+}
+
+.lie-stage[data-panel="intro"] .lie-intro,
+.lie-stage[data-panel="play"] .lie-play,
+.lie-stage[data-panel="end"] .lie-end {
+    display: flex;
+    animation: materialize var(--dur-base) var(--ease-out);
+}
+
+.lie-stage .btn {
+    width: auto;
+    min-width: 280px;
+    margin-top: 32px;
+    font-size: 1.25rem;
+    padding: 18px 40px;
+}
+
+.btn-danger {
+    background: var(--danger-fill);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #ff5147;
+}
+
+.btn-light {
+    background: white;
+    color: var(--label);
+}
+
+.btn-light:hover {
+    background: #e5e5ea;
+}
+
+/* Intro */
+.lie-siren {
+    font-size: 4.5rem;
+    line-height: 1;
+    animation: sirenPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sirenPulse {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(255, 59, 48, 0)); }
+    50% { transform: scale(1.08); filter: drop-shadow(0 0 24px rgba(255, 59, 48, 0.8)); }
+}
+
+.lie-intro h2 {
+    font-family: var(--font-display);
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin: 16px 0 24px;
+}
+
+.lie-rules {
+    list-style: none;
+    counter-reset: rule;
+    text-align: left;
+    max-width: 640px;
+    display: grid;
+    gap: 14px;
+}
+
+.lie-rules li {
+    counter-increment: rule;
+    display: grid;
+    grid-template-columns: 2.2rem 1fr;
+    align-items: start;
+    gap: 14px;
+    font-size: 1.25rem;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.lie-rules li::before {
+    content: counter(rule);
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 1rem;
+    color: white;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.lie-rules strong {
+    color: white;
+}
+
+/* Questions */
+.lie-question {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 3.9vw, 3.6rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.12;
+    max-width: 24ch;
+    text-wrap: balance;
+    transition: font-size var(--dur-base) var(--ease-out), opacity var(--dur-base) ease-out;
+}
+
+.lie-question.appear {
+    animation: materialize 0.5s var(--ease-out);
+}
+
+.lie-question.pop {
+    font-size: clamp(5rem, 12vw, 9rem);
+    font-variant-numeric: tabular-nums;
+}
+
+.lie-verdict {
+    margin-top: 36px;
+    min-height: 1.4em;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.lie-verdict.hint { color: rgba(255, 255, 255, 0.45); font-weight: 500; }
+.lie-verdict.pass { color: #30d158; }
+.lie-verdict.noface { color: #8e8e93; }
+.lie-verdict.caught {
+    color: white;
+    font-size: clamp(2.4rem, 5vw, 4rem);
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    animation: blink 0.35s step-end 6;
+}
+
+@keyframes blink {
+    50% { opacity: 0; }
+}
+
+.lie-stage.alarm {
+    animation: alarmPulse 0.5s ease-in-out 8 alternate;
+    background: #3a0004;
+}
+
+@keyframes alarmPulse {
+    from { background-color: #3a0004; box-shadow: inset 0 0 0 0 rgba(255, 59, 48, 0); }
+    to { background-color: #8e0a0a; box-shadow: inset 0 0 160px 20px rgba(255, 59, 48, 0.6); }
+}
+
+/* After the verdict the question steps back so the verdict takes the stage */
+.lie-stage.alarm .lie-question,
+.lie-stage.passed .lie-question {
+    font-size: clamp(1.4rem, 2.4vw, 2rem);
+    opacity: 0.6;
+}
+
+.lie-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.rec-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--danger-fill);
+    animation: recBlink 1.2s ease-in-out infinite;
+}
+
+@keyframes recBlink {
+    50% { opacity: 0.2; }
 }
 
 .lie-dots {
     display: flex;
-    justify-content: center;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-left: 12px;
 }
 
 .lie-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #48484a;
+    background: #3a3a3c;
     transition: background-color var(--dur-fast) ease-out, transform var(--dur-base) var(--ease-out);
 }
 
@@ -707,90 +961,32 @@ h1 {
 .lie-dot.caught { background: var(--danger-fill); }
 .lie-dot.noface { background: #8e8e93; }
 
-.lie-question {
+/* End */
+.lie-score-title {
     font-family: var(--font-display);
-    font-size: 1.4rem;
-    font-weight: 700;
-    letter-spacing: -0.015em;
-    line-height: 1.25;
-    min-height: 3.75em;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    font-size: clamp(3rem, 7vw, 5rem);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
 }
 
-.lie-question.appear {
-    animation: materialize var(--dur-base) var(--ease-out);
-}
-
-.lie-meter {
-    display: grid;
-    grid-template-columns: auto 1fr 3em;
-    align-items: center;
-    gap: 10px;
-    margin: 12px 0 8px;
-    font-size: 0.82rem;
+.lie-score-detail {
+    font-size: 1.3rem;
     color: rgba(255, 255, 255, 0.7);
-}
-
-.lie-meter-track {
-    height: 10px;
-    background: var(--dark-fill);
-    border-radius: var(--radius-pill);
-    overflow: hidden;
-}
-
-.lie-meter-fill {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: var(--success-fill);
-    border-radius: var(--radius-pill);
-    transition: width 0.15s linear, background-color var(--dur-fast) ease-out;
-}
-
-.lie-meter-fill.danger {
-    background: var(--danger-fill);
-}
-
-.lie-meter-value {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    color: white;
-    font-weight: 600;
-}
-
-.lie-verdict {
-    font-weight: 700;
-    min-height: 1.5em;
-}
-
-.lie-verdict.ok { color: #30d158; }
-.lie-verdict.warn { color: #ffd60a; }
-.lie-verdict.caught {
-    color: #ff453a;
-    font-size: 1.25rem;
-    letter-spacing: 0.02em;
-    animation: blink 0.3s step-end 4;
-}
-
-@keyframes blink {
-    50% { opacity: 0; }
+    margin-top: 10px;
 }
 
 .lie-reveal {
-    display: none;
-    background: var(--surface);
+    max-width: 720px;
+    margin-top: 32px;
+    padding: 22px 26px;
+    border-radius: var(--radius-lg);
+    background: white;
     color: var(--label);
-    border-radius: var(--radius-md);
-    padding: 16px 18px;
-    margin-bottom: 10px;
-    font-size: 1.02rem;
-    font-weight: 500;
-    line-height: 1.45;
+    font-size: 1.2rem;
+    line-height: 1.5;
     text-align: left;
-    box-shadow: 0 0 0 2px var(--highlight), var(--shadow-raised);
-    animation: materialize var(--dur-base) var(--ease-out);
+    box-shadow: 0 0 0 3px var(--highlight);
 }
 
 /* ===================================
@@ -1231,15 +1427,19 @@ h1 {
 
 @media (prefers-reduced-motion: reduce) {
     .screen.active,
+    .round-intro-card,
+    .lie-stage[data-panel] .lie-panel,
     .lie-question.appear,
-    .lie-reveal,
     .quiz-explanation,
     .ranking-result {
         animation: fadeOnly var(--dur-fast) ease-out;
     }
 
     .lie-verdict.caught,
-    .video-container.alarm,
+    .lie-stage.alarm,
+    .lie-siren,
+    .rec-dot,
+    .pop,
     .initials-input.shake {
         animation: none;
     }
