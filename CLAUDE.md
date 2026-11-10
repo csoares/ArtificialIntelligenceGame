@@ -28,7 +28,7 @@ There are no tests, no linter and no bundler. The frontend is plain browser JS l
 - `package-lock.json` is gitignored, so CI uses `npm install`, not `npm ci`.
 
 **Auto-update** lives in `electron/main.js` (production only):
-- The app checks on start and every 4 h (`UPDATE_CHECK_INTERVAL_MS`). The user is asked before anything downloads, but only while no game is running (checked with `executeJavaScript` on `gameState.isPlaying`). After the download the app restarts into the new version.
+- The app checks on start and every 4 h (`UPDATE_CHECK_INTERVAL_MS`). The user is asked before anything downloads, but only while no game is running (checked with `executeJavaScript` on `gameState.isPlaying`). After the download, `updateReady()` keeps the update in `readyUpdate` and `askToRestart()` asks "Reiniciar agora / Mais tarde" (again only while no game is running). "Mais tarde" installs it when the app quits (electron-updater's `autoInstallOnAppQuit` on Windows/Linux; a `will-quit` handler runs the mac swap script without relaunching), and the next periodic check asks again.
 - Windows and Linux use electron-updater's own installer.
 - While an update downloads (any platform), `reportUpdateProgress()` in `main.js` sends `update-progress` to the renderer, and `showUpdateProgress()` in `app.js` shows a banner (`#update-banner`) with the percentage and MB. The same function drives the Dock/taskbar progress bar.
 - macOS builds are unsigned (`identity: null`), and Squirrel.Mac refuses unsigned updates. So on macOS, `electron/mac-updater.js` handles it:

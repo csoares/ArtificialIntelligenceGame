@@ -2120,7 +2120,7 @@ function showUpdateProgress(state) {
 
     let text;
     if (state.done) {
-        text = `✅ Atualização${version} transferida. A reiniciar…`;
+        text = `✅ Versão${version} transferida.`;
     } else if (state.retrying) {
         text = `⏳ A ligação parou. A retomar… ${percent}%`;
     } else if (state.total) {
@@ -2130,7 +2130,9 @@ function showUpdateProgress(state) {
     }
     $('update-banner-text').textContent = text;
     const size = state.total && !state.done ? `${formatMB(state.transferred)} de ${formatMB(state.total)} MB · ` : '';
-    $('update-banner-hint').textContent = `${size}No fim, a app reinicia sozinha.`;
+    $('update-banner-hint').textContent = state.done
+        ? 'Falta só reiniciar a app para a instalar.'
+        : `${size}No fim, vamos perguntar se podes reiniciar.`;
     $('update-banner-fill').style.width = `${state.done ? 100 : percent}%`;
     banner.classList.toggle('retrying', !!state.retrying);
 }

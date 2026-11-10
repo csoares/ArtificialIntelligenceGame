@@ -197,8 +197,14 @@ const macUpdater = IS_MAC ? require('./mac-updater') : null;
 let updatePromptOpen = false;
 let updateDownloading = false;
 let pendingUpdateVersion = null; // version being downloaded by electron-updater (Windows/Linux)
+// Downloaded update waiting for a restart: { version, installNow(), installOnQuit() }
+let readyUpdate = null;
 
 function checkForUpdates() {
+    if (readyUpdate) {
+        askToRestart(); // downloaded earlier but "Mais tarde" was chosen: ask again
+        return;
+    }
     if (!autoUpdater || updatePromptOpen || updateDownloading) return;
     autoUpdater.checkForUpdates().catch(err => {
         console.log('Update check failed:', err.message);
@@ -234,7 +240,7 @@ async function promptForUpdate(info) {
         title: 'Nova versão disponível',
         message: `Está disponível a versão ${info.version} (tens a ${app.getVersion()}).`,
         detail: macCheck.ok
-            ? 'A atualização é transferida agora e a aplicação reinicia sozinha quando terminar.'
+            ? 'A atualização é transferida agora. Quando terminar, perguntamos se podes reiniciar a aplicação.'
             : 'Para se atualizar sozinha, a aplicação tem de estar na pasta Aplicações. ' +
               'Podes instalar esta versão à mão a partir da página de download.',
         buttons: [macCheck.ok ? 'Atualizar agora' : 'Abrir página de download', 'Mais tarde'],
@@ -285,14 +291,66 @@ async function installMacUpdate(info, bundle) {
             onProgress: ({ transferred, total, retrying }) =>
                 reportUpdateProgress({ version: info.version, transferred, total, retrying })
         });
-        reportUpdateProgress({ version: info.version, transferred: 1, total: 1, done: true });
-        if (mainWindow) mainWindow.setProgressBar(-1);
-        macUpdater.installAndRelaunch(prepared, bundle);
-        app.quit(); // the swap script waits for us to exit, replaces the app and reopens it
+        updateReady({
+            version: info.version,
+            // The swap script waits for us to exit, replaces the app and (optionally) reopens it
+            installNow: () => {
+                macUpdater.installAndRelaunch(prepared, bundle);
+                app.quit();
+            },
+            installOnQuit: () => macUpdater.installAndRelaunch(prepared, bundle, { relaunch: false })
+        });
     } catch (err) {
         showUpdateError(err);
     }
 }
+
+// The update is downloaded: ask before restarting (never in the middle of a game)
+function updateReady(update) {
+    updateDownloading = false;
+    readyUpdate = update;
+    reportUpdateProgress({ version: update.version, transferred: 1, total: 1, done: true });
+    if (mainWindow) mainWindow.setProgressBar(-1);
+    askToRestart();
+}
+
+async function askToRestart() {
+    if (!readyUpdate || !mainWindow || updatePromptOpen) return;
+
+    if (await isGameRunning()) {
+        setTimeout(askToRestart, IDLE_RETRY_MS);
+        return;
+    }
+
+    updatePromptOpen = true;
+    const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Atualização pronta',
+        message: `A versão ${readyUpdate.version} já foi transferida.`,
+        detail: 'Para a instalar, a aplicação tem de reiniciar (demora poucos segundos). ' +
+            'Se escolheres "Mais tarde", é instalada quando fechares a aplicação.',
+        buttons: ['Reiniciar agora', 'Mais tarde'],
+        defaultId: 0,
+        cancelId: 1
+    });
+    updatePromptOpen = false;
+    reportUpdateProgress(null);
+
+    if (response === 0 && readyUpdate) {
+        const update = readyUpdate;
+        readyUpdate = null;
+        update.installNow();
+    }
+}
+
+// "Mais tarde" on macOS: swap the app when it quits (electron-updater does this itself on Windows/Linux)
+app.on('will-quit', () => {
+    if (readyUpdate && readyUpdate.installOnQuit) {
+        const update = readyUpdate;
+        readyUpdate = null;
+        update.installOnQuit();
+    }
+});
 
 function showUpdateError(err) {
     console.error('Update failed:', err);
@@ -344,11 +402,8 @@ if (autoUpdater) {
 
     autoUpdater.on('update-downloaded', (info) => {
         console.log('Update downloaded:', info.version);
-        updateDownloading = false;
-        reportUpdateProgress({ version: info.version, transferred: 1, total: 1, done: true });
-        if (mainWindow) mainWindow.setProgressBar(-1);
-        // The user already chose to update, so restart straight away
-        setImmediate(() => autoUpdater.quitAndInstall());
+        // autoInstallOnAppQuit installs it on quit if the user picks "Mais tarde"
+        updateReady({ version: info.version, installNow: () => autoUpdater.quitAndInstall() });
     });
 }
 
