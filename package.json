@@ -51,6 +51,7 @@
     "files": [
       "electron/**/*",
       "lib/**/*",
+      "assets/favicon.png",
       "app.js",
       "config.js",
       "index.html",

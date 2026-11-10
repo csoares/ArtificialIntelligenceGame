@@ -62,4 +62,5 @@ There are no tests, no linter and no bundler. The frontend is plain browser JS l
 - electron-builder uses the `build` key in `package.json` (the build log prints `loaded configuration file=package.json`). `electron-builder.yml` is stale and ignored, so don't edit it expecting an effect.
 - Any new top-level file the renderer loads must be added to the `files` list, or it will be missing from packaged builds.
 - macOS builds have no Developer ID (`identity: null`). The `afterPack` hook `build/adhoc-sign.js` re-signs the `.app` ad-hoc. Without it, packaging breaks Electron's original signature and macOS calls the downloaded app "damaged". The `zip` targets (arm64 + x64) are what the mac self-updater downloads. Camera permission text lives in `mac.extendInfo`.
+- App icons live in `build/`, the electron-builder resources folder: `icon.icns` (macOS), `icon.ico` (Windows) and `icon.png` (Linux). They are rendered from `build/icon.svg`. The web favicon is `assets/favicon.png`.
 - To check a mac build locally: `npx electron-builder --mac zip --arm64 --publish never`, then `codesign --verify --deep --strict` on the `.app`.
