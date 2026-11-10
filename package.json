@@ -52,6 +52,7 @@
       "electron/**/*",
       "lib/**/*",
       "assets/favicon.png",
+      "assets/qr-informatica.svg",
       "app.js",
       "config.js",
       "index.html",

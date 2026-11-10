@@ -58,6 +58,7 @@ There are no tests, no linter and no bundler. The frontend is plain browser JS l
   - `startGestureLoop(onFrame)` shares the detection token with `startDetectionLoop`, so `stopDetectionLoop()` stops either one.
   - `GESTURES` keys are MediaPipe category names. The exception is `Heart` (🫶 with two hands), which `isHeart()` detects from the 21 landmarks per hand.
   - The first gesture round always includes 👍 and the second includes 🫶.
+- No repeats in one game: `createGamePlan()` gives gesture rounds distinct gestures and emotion rounds distinct targets that also differ from the "Engana a IA" targets. The sequence round uses each emotion at most once.
 - Handpose/TensorFlow (`lib/handpose.min.js`, `lib/tensorflow.min.js`) is in the repo but unused because it conflicts with face-api.js.
 
 **Kiosk mode** is controlled only by `APP_CONFIG.kioskMode` in `config.js`. When it's on, registration is skipped (the player becomes "Visitante"), the camera stays active, and "Jogar Novamente" goes straight back to the game. (The `config.kioskMode` field in `package.json` and the `APP_CONFIG` env var mentioned in `electron/README.md` aren't read by any code.)
@@ -73,8 +74,8 @@ There are no tests, no linter and no bundler. The frontend is plain browser JS l
 ## Packaging gotchas
 
 - electron-builder uses the `build` key in `package.json` (the build log prints `loaded configuration file=package.json`). `electron-builder.yml` is stale and ignored, so don't edit it expecting an effect.
-- Any new top-level file the renderer loads must be added to the `files` list, or it will be missing from packaged builds.
+- Any new top-level file the renderer loads must be added to the `files` list, or it will be missing from packaged builds (e.g. `assets/qr-informatica.svg`, the QR code for the course page shown on the kiosk and results screens, generated with the `qrcode` npm package). Links with `target="_blank"` open in the system browser through `setWindowOpenHandler`.
 - macOS builds have no Developer ID (`identity: null`). The `afterPack` hook `build/adhoc-sign.js` re-signs the `.app` ad-hoc. Without it, packaging breaks Electron's original signature and macOS calls the downloaded app "damaged". The `zip` targets (arm64 + x64) are what the mac self-updater downloads. Camera permission text lives in `mac.extendInfo`.
-- Layout: everything must fit a 1366×768 / 1280×720 laptop without scrolling or text leaving the screen. Big type uses `clamp()` with `vh` as well as `vw`, and there is a `max-height: 760px` compact block in `style.css`.
+- Layout: the CSS is designed for a 1280×720 window and must fit it (and 1366×768) without scrolling or text leaving the screen. Big type uses `clamp()` with `vh` as well as `vw`, and there is a `max-height: 760px` compact block in `style.css`. In Electron, `electron/preload.js` (`fitToWindow`) sets the page zoom (`webFrame.setZoomFactor`) so the page always has ~1280×720 CSS px, which scales the game up on 1080p/4K monitors. Don't switch to CSS `zoom`: it also scales `vh` units and breaks the layout. The browser version doesn't auto-zoom. The game card fills the window height (`#game-screen.active` is a flex column) and quiz answers share one row height (`grid-auto-rows: 1fr`).
 - App icons live in `build/`, the electron-builder resources folder: `icon.icns` (macOS), `icon.ico` (Windows) and `icon.png` (Linux). They are rendered from `build/icon.svg`. The web favicon is `assets/favicon.png`.
 - To check a mac build locally: `npx electron-builder --mac zip --arm64 --publish never`, then `codesign --verify --deep --strict` on the `.app`.
