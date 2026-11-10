@@ -254,6 +254,19 @@ h1 {
     margin-top: 20px;
 }
 
+#kiosk-start-screen > .app-version,
+#registration-screen > .app-version {
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--label-3);
+    font-variant-numeric: tabular-nums;
+    margin: 18px 0 0;
+}
+
+.app-version:empty {
+    display: none;
+}
+
 .export-section {
     margin-top: 20px;
     padding-top: 20px;

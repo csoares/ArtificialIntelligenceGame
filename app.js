@@ -540,6 +540,7 @@ $('registration-form').addEventListener('submit', async (e) => {
 window.addEventListener('DOMContentLoaded', () => {
     buildEmotionBars();
     renderRankings();
+    showAppVersion();
 
     if (isKioskMode()) {
         // In kiosk mode, skip registration and show start screen
@@ -555,6 +556,23 @@ $('kiosk-start-btn').addEventListener('click', async () => {
     showScreen('loading-screen');
     await initializeGame();
 });
+
+// Show the installed version on the start screens of the desktop app (makes auto-updates easy
+// to confirm). The "2.0" in the title is part of the game's name, not the version. Not shown in
+// the web version: the repo's package.json isn't bumped (CI stamps the version at build time).
+async function showAppVersion() {
+    if (!window.electronAPI || !window.electronAPI.getVersion) return;
+    let version = null;
+    try {
+        version = await window.electronAPI.getVersion();
+    } catch (e) {
+        // Version is informational only
+    }
+    if (!version) return;
+    document.querySelectorAll('.app-version').forEach(el => {
+        el.textContent = `Versão ${version}`;
+    });
+}
 
 // ===================================
 // INITIALIZATION (models + camera)
