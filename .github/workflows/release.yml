@@ -1,6 +1,6 @@
 name: Build and Release
 
-# Every push to main publishes a new release. Installed apps pick it up through electron-updater.
+# Every push to main publishes a new release. Installed apps pick it up through the auto-updater.
 on:
   push:
     branches: [main]
@@ -17,6 +17,10 @@ permissions:
 concurrency:
   group: release
   cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   version:
@@ -46,18 +50,42 @@ jobs:
           echo "Latest tag: ${latest:-none} | package.json: $pkg | next: $next"
           echo "version=$next" >> "$GITHUB_OUTPUT"
 
-      - name: Create tag
+      # The release starts as a draft: installed apps only see it once every file is uploaded
+      - name: Create tag and draft release
         run: |
-          git tag "v${{ steps.next.outputs.version }}"
-          git push origin "v${{ steps.next.outputs.version }}"
+          v="${{ steps.next.outputs.version }}"
+          git tag "v$v"
+          git push origin "v$v"
+          cat > notes.md <<NOTES
+          ## Que ficheiro descarregar?
 
-  release:
+          | Computador | Ficheiro |
+          |---|---|
+          | **Windows** | \`Emotions-Challenge-Setup-$v.exe\` |
+          | **Mac com chip Apple (M1, M2, M3, M4…)** | \`Emotions-Challenge-$v-mac-arm64.dmg\` |
+          | **Mac com processador Intel** | \`Emotions-Challenge-$v-mac-x64.dmg\` |
+
+          Se a app já estiver instalada, não é preciso descarregar nada: ela avisa que há uma versão nova e atualiza-se sozinha.
+
+          Os ficheiros \`.zip\`, \`.yml\` e \`.blockmap\` são usados pela atualização automática.
+          NOTES
+          gh release create "v$v" --draft --title "$v" --notes-file notes.md
+
+  build:
     needs: version
     runs-on: ${{ matrix.os }}
-
     strategy:
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-latest
+            # Installers (.dmg) + what the mac self-updater downloads (.zip + latest-mac.yml)
+            files: dist-electron/*.dmg dist-electron/*-mac-*.zip dist-electron/latest-mac.yml
+          - os: windows-latest
+            # Installer + blockmap (lets Windows download only what changed) + latest.yml
+            files: dist-electron/*-Setup-*.exe dist-electron/*-Setup-*.exe.blockmap dist-electron/latest.yml
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +101,18 @@ jobs:
       - name: Set version
         run: npm version ${{ needs.version.outputs.version }} --no-git-tag-version --allow-same-version
 
-      - name: Build and Publish Electron app
-        run: npm run publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        run: npx electron-builder --publish never
+
+      # Upload only what is needed (no .dmg/.zip blockmaps, no debug files)
+      - name: Upload to the draft release
+        run: |
+          ls -la dist-electron
+          gh release upload "v${{ needs.version.outputs.version }}" ${{ matrix.files }} --clobber
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        run: gh release edit "v${{ needs.version.outputs.version }}" --draft=false --latest

@@ -15,15 +15,20 @@ npm run dev            # same, with nodemon auto-reload
 npm run electron       # Electron in production mode (loads index.html from disk)
 npm run electron-dev   # ELECTRON_IS_DEV=1: loads http://localhost:3000, so `npm start` must be running; opens DevTools
 npm run build          # electron-builder for the current platform → dist-electron/
-npm run build-all      # mac + win + linux
-npm run publish        # build and publish to GitHub releases
+npm run build-all      # mac + win
+npm run publish        # build and upload EVERY artifact to GitHub (CI doesn't use it; see below)
 ```
 
 There are no tests, no linter and no bundler. The frontend is plain browser JS loaded with `<script>` tags.
 
 **Releases:** every push to `main` (except changes that only touch `*.md`) runs `.github/workflows/release.yml`.
 - The `version` job sets the next version to the latest `v*` tag plus one patch, or to `package.json`'s `version` if that is higher. Bump `package.json` to make a minor or major release. The job then pushes the tag.
-- The matrix job stamps that version with `npm version --no-git-tag-version` and runs `npm run publish` on macOS, Windows and Ubuntu.
+- The job also creates a **draft** release whose notes explain which file to download.
+- The build matrix (macOS and Windows only; there is no Linux build) stamps the version with `npm version --no-git-tag-version`, runs `electron-builder --publish never` and uploads only the needed files with `gh release upload`:
+  - Mac: the `.dmg` installers, the `-mac-*.zip` files (the self-updater downloads these) and `latest-mac.yml`.
+  - Windows: the `Setup` `.exe`, its `.blockmap` (for differential updates) and `latest.yml`.
+- The `publish` job then makes the release public, so apps never see a half-uploaded release.
+- Artifact names come from `artifactName` in `package.json` (`Emotions-Challenge-<version>-mac-arm64|x64.*`, `Emotions-Challenge-Setup-<version>.exe`). Keep `arm64` in the Apple Silicon zip name, because `pickZip()` relies on it. `dmg.writeUpdateInfo: false` skips the unused dmg blockmaps.
 - Work on branches: every merge to `main` ships to every installed app.
 - `package-lock.json` is gitignored, so CI uses `npm install`, not `npm ci`.
 
