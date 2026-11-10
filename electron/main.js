@@ -110,27 +110,40 @@ function createWindow() {
 }
 
 // Register custom protocol to serve models from resources
+// Content types the renderer needs to be exact: ES modules (MediaPipe's vision_bundle.mjs) and
+// WebAssembly. Everything else is served as Electron reports it.
+const RESOURCE_MIME_TYPES = {
+    '.mjs': 'text/javascript',
+    '.js': 'text/javascript',
+    '.wasm': 'application/wasm',
+    '.json': 'application/json'
+};
+
+// Serves models/ (face-api weights, MediaPipe) as app-resource://models/... from the app resources.
 function registerModelProtocol() {
+    const baseDir = isDev ? path.join(__dirname, '..') : process.resourcesPath;
+
     protocol.handle('app-resource', async (request) => {
-        const urlPath = request.url.replace('app-resource://', '');
-        let filePath;
-
-        if (isDev) {
-            filePath = path.join(__dirname, '..', urlPath);
-        } else {
-            filePath = path.join(process.resourcesPath, urlPath);
-        }
-
-        console.log('Protocol request:', request.url);
-        console.log('Serving file:', filePath);
-        console.log('File exists:', fs.existsSync(filePath));
-
         try {
-            const fileUrl = url.pathToFileURL(filePath).href;
-            console.log('Fetching:', fileUrl);
-            return net.fetch(fileUrl);
+            const { host, pathname } = new URL(request.url);
+            const filePath = path.resolve(baseDir, host, '.' + decodeURIComponent(pathname));
+
+            // Never serve anything outside the resources folder
+            if (!filePath.startsWith(path.resolve(baseDir) + path.sep) || !fs.existsSync(filePath)) {
+                console.error('Resource not found:', request.url);
+                return new Response('Not found', { status: 404 });
+            }
+
+            const response = await net.fetch(url.pathToFileURL(filePath).href);
+            const headers = new Headers(response.headers);
+            // The page is loaded from file://, so module/script loads need CORS
+            headers.set('Access-Control-Allow-Origin', '*');
+            const mimeType = RESOURCE_MIME_TYPES[path.extname(filePath).toLowerCase()];
+            if (mimeType) headers.set('Content-Type', mimeType);
+
+            return new Response(response.body, { status: response.status, headers });
         } catch (error) {
-            console.error('Error serving resource:', error);
+            console.error('Error serving resource:', request.url, error);
             return new Response('Not found', { status: 404 });
         }
     });
