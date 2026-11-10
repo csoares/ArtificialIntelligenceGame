@@ -285,6 +285,20 @@ h1 {
     font-weight: 600;
 }
 
+.credit-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    vertical-align: middle;
+}
+
+/* Logo of csoares.me (same "cs" badge as the site's favicon) */
+.credit-logo {
+    width: 1.35em;
+    height: 1.35em;
+    flex: none;
+}
+
 .app-credit a:hover {
     color: var(--accent);
     text-decoration: underline;
