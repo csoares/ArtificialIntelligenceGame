@@ -151,9 +151,24 @@ const HAND_CONNECTIONS = [
     [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
     [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]
 ];
-const NERVOUS_THRESHOLD = 0.65;       // "nervousness" (1 - neutral, smoothed) that triggers the alarm
-const NERVOUS_HOLD_MS = 500;          // how long it must stay above the threshold (ignores blinks/glitches)
-const NERVOUS_SMOOTHING = 0.35;       // exponential smoothing factor for the meter (0-1, higher = jumpier)
+// Reaction = how much an expression rises above the player's own resting face (measured during
+// the 3-2-1). A raw "1 - neutral" doesn't work: resting faces are often read as 30-60% sad/angry.
+const LIE_REACTION_THRESHOLD = 0.4;   // weighted rise above the resting face that counts as a reaction
+const LIE_REACTION_HOLD_MS = 700;     // the reaction must last this long (ignores blinks/glitches)
+const LIE_SMOOTHING = 0.3;            // exponential smoothing of expressions (0-1, higher = jumpier)
+const LIE_GRACE_MS = 1000;            // time to read each question before reactions count
+const LIE_CALIBRATION_MIN_FRAMES = 5; // frames needed to trust the resting-face measurement
+const LIE_BASELINE_CAP = 0.25;        // max resting value for happy/surprised (smiling at 3-2-1 isn't "resting")
+// Smiles and surprise are the typical reactions; sad/angry/disgusted are what resting faces get
+// misread as, so they count less.
+const LIE_REACTION_WEIGHTS = {
+    happy: 1,
+    surprised: 1,
+    fearful: 0.8,
+    angry: 0.6,
+    sad: 0.6,
+    disgusted: 0.6
+};
 const LIE_MIN_FACE_RATIO = 0.5;       // a question only counts if the face was visible in >= 50% of frames
 
 // ===================================
@@ -1523,9 +1538,11 @@ function startGestureRound(gestureKeys) {
 /**
  * The AI "pretends" to be a lie detector, on a full-screen dark stage (no camera, no bars).
  * 1. Intro explains the rules; "Estou pronto" (or a timeout) starts a 3-2-1.
- * 2. Each question stays up to LIE_QUESTION_MS while the AI watches. "Nervousness" is simply
- *    1 - neutral (smoothed); above NERVOUS_THRESHOLD for NERVOUS_HOLD_MS -> "MENTIRA DETETADA",
- *    which stays on screen LIE_CAUGHT_HOLD_MS so everyone can enjoy the reaction.
+ * 2. During the 3-2-1 the AI measures the player's resting face (baseline). Each question then
+ *    stays up to LIE_QUESTION_MS; after LIE_GRACE_MS of reading time, a weighted rise of any
+ *    expression above the baseline (smoothed) beyond LIE_REACTION_THRESHOLD for
+ *    LIE_REACTION_HOLD_MS -> "MENTIRA DETETADA", which stays on screen LIE_CAUGHT_HOLD_MS so
+ *    everyone can enjoy the reaction.
  * 3. The end panel shows the score; the last lie round of the game also shows LIE_REVEAL.
  */
 function startLieDetectorRound(reveal) {
@@ -1551,9 +1568,12 @@ function startLieDetectorRound(reveal) {
     let phase = 'intro';       // intro | countdown | asking | caught | result | done
     let framesTotal = 0;
     let framesWithFace = 0;
-    let nervous = 0;
-    let nervousSince = null;
+    let smoothed = null;       // smoothed expressions during the current question
+    let reactionSince = null;
+    let questionStart = 0;
     let questionTimer = null;
+    let baseline = null;       // resting face, measured during the 3-2-1
+    const calibration = { sums: {}, frames: 0 };
 
     const later = (fn, ms) => {
         const id = setTimeout(fn, ms);
@@ -1581,13 +1601,14 @@ function startLieDetectorRound(reveal) {
         phase = 'asking';
         framesTotal = 0;
         framesWithFace = 0;
-        nervous = 0;
-        nervousSince = null;
+        smoothed = null;
+        reactionSince = null;
+        questionStart = Date.now();
 
         stage.classList.remove('alarm', 'passed');
         const question = $('lie-question');
         question.textContent = questions[i];
-        question.classList.remove('appear');
+        question.classList.remove('appear', 'pop'); // 'pop' is the giant 3-2-1 style
         void question.offsetWidth; // restart animation
         question.classList.add('appear');
         setVerdict('😐 Mantém a cara de poker…', 'hint');
@@ -1627,27 +1648,67 @@ function startLieDetectorRound(reveal) {
         later(() => askQuestion(index + 1), LIE_CAUGHT_HOLD_MS);
     };
 
+    const addCalibrationFrame = expressions => {
+        Object.entries(expressions).forEach(([emotion, value]) => {
+            calibration.sums[emotion] = (calibration.sums[emotion] || 0) + value;
+        });
+        calibration.frames++;
+    };
+
+    const finishCalibration = () => {
+        if (baseline || calibration.frames < LIE_CALIBRATION_MIN_FRAMES) return;
+        baseline = {};
+        Object.entries(calibration.sums).forEach(([emotion, sum]) => {
+            baseline[emotion] = sum / calibration.frames;
+        });
+        baseline.happy = Math.min(baseline.happy || 0, LIE_BASELINE_CAP);
+        baseline.surprised = Math.min(baseline.surprised || 0, LIE_BASELINE_CAP);
+        console.log('Lie detector baseline:', baseline);
+    };
+
+    // Weighted rise of the strongest expression above the resting face
+    const reactionLevel = () => Math.max(...Object.entries(LIE_REACTION_WEIGHTS).map(
+        ([emotion, weight]) => weight * ((smoothed[emotion] || 0) - (baseline[emotion] || 0))
+    ));
+
     const onFrame = (expressions, fresh) => {
-        if (phase !== 'asking') return {};
         if (expressions && !fresh) return {}; // reused (anti-flicker) frame: ignore
+
+        if (phase === 'countdown') {
+            if (expressions) addCalibrationFrame(expressions);
+            return {};
+        }
+        if (phase !== 'asking') return {};
 
         framesTotal++;
         if (!expressions) {
             $('lie-status').textContent = '👀 Não te estou a ver. Olha para a câmara!';
-            nervousSince = null;
+            reactionSince = null;
             return {};
         }
         framesWithFace++;
         $('lie-status').textContent = 'A IA está a analisar a tua cara…';
 
-        const raw = 1 - (expressions.neutral || 0);
-        nervous += NERVOUS_SMOOTHING * (raw - nervous);
-        if (nervous > NERVOUS_THRESHOLD) {
-            const now = Date.now();
-            if (nervousSince === null) nervousSince = now;
-            if (now - nervousSince >= NERVOUS_HOLD_MS) caught();
+        smoothed = smoothed
+            ? Object.fromEntries(Object.keys(expressions).map(emotion => [
+                emotion, smoothed[emotion] + LIE_SMOOTHING * (expressions[emotion] - smoothed[emotion])
+            ]))
+            : { ...expressions };
+
+        const now = Date.now();
+        if (now - questionStart < LIE_GRACE_MS) {
+            // Reading time. If the 3-2-1 didn't see the face, calibrate now instead.
+            if (!baseline) addCalibrationFrame(expressions);
+            return {};
+        }
+        finishCalibration();
+        if (!baseline) return {};
+
+        if (reactionLevel() > LIE_REACTION_THRESHOLD) {
+            if (reactionSince === null) reactionSince = now;
+            if (now - reactionSince >= LIE_REACTION_HOLD_MS) caught();
         } else {
-            nervousSince = null;
+            reactionSince = null;
         }
         return {};
     };
@@ -1659,13 +1720,15 @@ function startLieDetectorRound(reveal) {
         showPanel('play');
         stage.classList.remove('alarm', 'passed');
         setVerdict('');
-        $('lie-status').textContent = 'Prepara a tua cara de poker…';
+        $('lie-status').textContent = 'A IA está a aprender a tua cara normal…';
+        // The detection loop starts now so the 3-2-1 measures the resting face
+        startDetectionLoop(onFrame);
         ['3', '2', '1'].forEach((n, i) => later(() => {
             setCountdown($('lie-question'), n);
             sfx.play('tick');
         }, i * 1000));
         later(() => {
-            startDetectionLoop(onFrame);
+            finishCalibration();
             askQuestion(0);
         }, 3000);
     };
@@ -1690,7 +1753,7 @@ function startLieDetectorRound(reveal) {
             if (round.ended) return;
             stage.hidden = true;
             endRound({
-                label: `Detetor de mentiras (${passed}/${total} sem ser apanhado)`,
+                label: `Detetor de mentiras (${passed}/${total})`,
                 success: win,
                 points: (MAX_POINTS_PER_ROUND * passed) / total,
                 delay: 300

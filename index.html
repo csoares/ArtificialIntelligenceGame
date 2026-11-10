@@ -129,42 +129,48 @@
         <!-- Results Screen -->
         <div id="results-screen" class="screen">
             <h1>Desafio Completo!</h1>
-            <div class="results-box">
-                <h2 id="student-name"></h2>
-                <p id="student-school"></p>
-                <div class="final-score">
-                    <span class="score-label">Pontuação Final:</span>
-                    <span id="final-score" class="score-value">0</span>
-                    <span id="score-max" class="score-max">/ 1000</span>
+            <div class="results-layout">
+                <div class="results-main">
+                    <div class="results-box">
+                        <h2 id="student-name"></h2>
+                        <p id="student-school"></p>
+                        <div class="final-score">
+                            <span class="score-label">Pontuação Final:</span>
+                            <span id="final-score" class="score-value">0</span>
+                            <span id="score-max" class="score-max">/ 1000</span>
+                        </div>
+                        <div id="score-message" class="score-message"></div>
+                    </div>
+
+                    <!-- Ranking do dia (opcional: só iniciais) -->
+                    <div id="ranking-entry" class="ranking-entry">
+                        <p class="ranking-entry-title">🏆 Queres entrar no ranking de hoje?</p>
+                        <p class="ranking-entry-hint">É opcional. Só guardamos as tuas iniciais (até 3 letras) e os pontos.</p>
+                        <input type="text" id="initials-input" class="initials-input" maxlength="3"
+                               autocomplete="off" spellcheck="false" placeholder="ABC" aria-label="Iniciais">
+                        <div class="ranking-entry-actions">
+                            <button id="save-initials-btn" class="btn btn-secondary">Entrar no ranking</button>
+                            <button id="skip-initials-btn" class="btn btn-ghost">Não, obrigado</button>
+                        </div>
+                    </div>
+                    <p id="ranking-result" class="ranking-result"></p>
+
+                    <button id="play-again-btn" class="btn btn-primary">Jogar Novamente</button>
+                    <p class="save-notice" id="save-notice"></p>
+                    <p class="ufp-promo">🎓 Gostaste? Explora Engenharia Informática na UFP!</p>
                 </div>
-                <div id="score-message" class="score-message"></div>
-            </div>
 
-            <!-- Ranking do dia (opcional: só iniciais) -->
-            <div id="ranking-entry" class="ranking-entry">
-                <p class="ranking-entry-title">🏆 Queres entrar no ranking de hoje?</p>
-                <p class="ranking-entry-hint">É opcional. Só guardamos as tuas iniciais (até 3 letras) e os pontos.</p>
-                <input type="text" id="initials-input" class="initials-input" maxlength="3"
-                       autocomplete="off" spellcheck="false" placeholder="ABC" aria-label="Iniciais">
-                <div class="ranking-entry-actions">
-                    <button id="save-initials-btn" class="btn btn-secondary">Entrar no ranking</button>
-                    <button id="skip-initials-btn" class="btn btn-ghost">Não, obrigado</button>
+                <div class="results-side">
+                    <div class="results-details">
+                        <h3>Resultados das Rondas:</h3>
+                        <div id="round-results"></div>
+                    </div>
+                    <div class="ranking-board">
+                        <h3>🏆 Ranking de hoje</h3>
+                        <ol class="ranking-list"></ol>
+                    </div>
                 </div>
             </div>
-            <p id="ranking-result" class="ranking-result"></p>
-
-            <div class="ranking-board">
-                <h3>🏆 Ranking de hoje</h3>
-                <ol class="ranking-list"></ol>
-            </div>
-
-            <div class="results-details">
-                <h3>Resultados das Rondas:</h3>
-                <div id="round-results"></div>
-            </div>
-            <button id="play-again-btn" class="btn btn-primary">Jogar Novamente</button>
-            <p class="save-notice" id="save-notice"></p>
-            <p class="ufp-promo">🎓 Gostaste? Explora Engenharia Informática na UFP!</p>
         </div>
     </div>
 
