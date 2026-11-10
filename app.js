@@ -2099,6 +2099,46 @@ if (window.electronAPI && window.electronAPI.onMenuExportCSV) {
 }
 
 // ===================================
+// UPDATE PROGRESS BANNER (Electron)
+// ===================================
+
+function formatMB(bytes) {
+    return (bytes / 1048576).toFixed(0);
+}
+
+// state: { version, transferred, total, retrying, done } or null to hide
+function showUpdateProgress(state) {
+    const banner = $('update-banner');
+    if (!state) {
+        banner.hidden = true;
+        return;
+    }
+    banner.hidden = false;
+    const percent = state.total ? Math.min(100, Math.floor((state.transferred / state.total) * 100)) : 0;
+    const version = state.version ? ` ${state.version}` : '';
+
+    let text;
+    if (state.done) {
+        text = `✅ Atualização${version} transferida. A reiniciar…`;
+    } else if (state.retrying) {
+        text = `⏳ A ligação parou. A retomar… ${percent}%`;
+    } else if (state.total) {
+        text = `⬇️ A transferir a versão${version}… ${percent}%`;
+    } else {
+        text = `⬇️ A preparar a transferência da versão${version}…`;
+    }
+    $('update-banner-text').textContent = text;
+    const size = state.total && !state.done ? `${formatMB(state.transferred)} de ${formatMB(state.total)} MB · ` : '';
+    $('update-banner-hint').textContent = `${size}No fim, a app reinicia sozinha.`;
+    $('update-banner-fill').style.width = `${state.done ? 100 : percent}%`;
+    banner.classList.toggle('retrying', !!state.retrying);
+}
+
+if (window.electronAPI && window.electronAPI.onUpdateProgress) {
+    window.electronAPI.onUpdateProgress(showUpdateProgress);
+}
+
+// ===================================
 // PLAY AGAIN
 // ===================================
 

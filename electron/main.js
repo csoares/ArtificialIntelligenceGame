@@ -196,6 +196,7 @@ const macUpdater = IS_MAC ? require('./mac-updater') : null;
 
 let updatePromptOpen = false;
 let updateDownloading = false;
+let pendingUpdateVersion = null; // version being downloaded by electron-updater (Windows/Linux)
 
 function checkForUpdates() {
     if (!autoUpdater || updatePromptOpen || updateDownloading) return;
@@ -256,16 +257,35 @@ async function promptForUpdate(info) {
         return;
     }
 
+    pendingUpdateVersion = info.version;
+    reportUpdateProgress({ version: info.version, transferred: 0, total: 0 });
     autoUpdater.downloadUpdate().catch(showUpdateError);
+}
+
+// Progress for the in-app banner and the Dock/taskbar bar. state is null to hide the banner.
+let lastProgressSent = 0;
+function reportUpdateProgress(state) {
+    if (!mainWindow) return;
+    if (!state) {
+        mainWindow.setProgressBar(-1);
+        mainWindow.webContents.send('update-progress', null);
+        return;
+    }
+    const now = Date.now();
+    if (!state.retrying && !state.done && now - lastProgressSent < 250) return; // max ~4 updates/s
+    lastProgressSent = now;
+    if (state.total) mainWindow.setProgressBar(Math.min(1, state.transferred / state.total));
+    mainWindow.webContents.send('update-progress', state);
 }
 
 async function installMacUpdate(info, bundle) {
     try {
+        reportUpdateProgress({ version: info.version, transferred: 0, total: 0 });
         const prepared = await macUpdater.prepareUpdate(info, {
-            onProgress: progress => {
-                if (mainWindow) mainWindow.setProgressBar(progress);
-            }
+            onProgress: ({ transferred, total, retrying }) =>
+                reportUpdateProgress({ version: info.version, transferred, total, retrying })
         });
+        reportUpdateProgress({ version: info.version, transferred: 1, total: 1, done: true });
         if (mainWindow) mainWindow.setProgressBar(-1);
         macUpdater.installAndRelaunch(prepared, bundle);
         app.quit(); // the swap script waits for us to exit, replaces the app and reopens it
@@ -278,7 +298,7 @@ function showUpdateError(err) {
     console.error('Update failed:', err);
     updateDownloading = false;
     if (!mainWindow) return;
-    mainWindow.setProgressBar(-1);
+    reportUpdateProgress(null);
     dialog.showMessageBox(mainWindow, {
         type: 'error',
         title: 'Erro na atualização',
@@ -315,19 +335,18 @@ if (autoUpdater) {
 
     autoUpdater.on('download-progress', (progressObj) => {
         console.log(`Download progress: ${progressObj.percent.toFixed(1)}%`);
-        if (mainWindow) {
-            mainWindow.setProgressBar(progressObj.percent / 100);
-            mainWindow.webContents.send('download-progress', progressObj);
-        }
+        reportUpdateProgress({
+            version: pendingUpdateVersion,
+            transferred: progressObj.transferred,
+            total: progressObj.total
+        });
     });
 
     autoUpdater.on('update-downloaded', (info) => {
         console.log('Update downloaded:', info.version);
         updateDownloading = false;
-        if (mainWindow) {
-            mainWindow.setProgressBar(-1);
-            mainWindow.webContents.send('update-downloaded', info);
-        }
+        reportUpdateProgress({ version: info.version, transferred: 1, total: 1, done: true });
+        if (mainWindow) mainWindow.setProgressBar(-1);
         // The user already chose to update, so restart straight away
         setImmediate(() => autoUpdater.quitAndInstall());
     });

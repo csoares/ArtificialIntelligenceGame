@@ -238,6 +238,13 @@
         </div>
     </div>
 
+    <!-- Update download progress (Electron only, filled by showUpdateProgress) -->
+    <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
+        <p id="update-banner-text" class="update-banner-text"></p>
+        <p id="update-banner-hint" class="update-banner-hint"></p>
+        <div class="update-banner-track"><div id="update-banner-fill" class="update-banner-fill"></div></div>
+    </div>
+
     <script src="config.js"></script>
     <script src="app.js"></script>
 </body>
