@@ -119,7 +119,7 @@ const LIE_INTRO_AUTOSTART_MS = 45000; // start anyway if nobody presses "Estou p
 const LIE_END_AUTOCONTINUE_MS = 7000;
 const LIE_REVEAL_AUTOCONTINUE_MS = 35000;
 const NERVOUS_THRESHOLD = 0.65;       // "nervousness" (1 - neutral, smoothed) that triggers the alarm
-const NERVOUS_HOLD_MS = 500;          // how long it must stay above the threshold (talking shouldn't trigger it)
+const NERVOUS_HOLD_MS = 500;          // how long it must stay above the threshold (ignores blinks/glitches)
 const NERVOUS_SMOOTHING = 0.35;       // exponential smoothing factor for the meter (0-1, higher = jumpier)
 const LIE_MIN_FACE_RATIO = 0.5;       // a question only counts if the face was visible in >= 50% of frames
 
@@ -327,7 +327,7 @@ const TRICK_CHALLENGES = [
 ];
 
 // "Detetor de Mentiras": questions meant to get a reaction from 15-17 year-olds (with friends
-// watching), but fine for a school event. The player always answers "não" out loud.
+// watching), but fine for a school event. The player just reads them and tries not to react.
 const LIE_QUESTIONS = [
     'Já fingiste estar doente para faltar a um teste?',
     'Já copiaste num teste?',
@@ -1290,7 +1290,7 @@ function startLieDetectorRound(reveal) {
         question.classList.remove('appear');
         void question.offsetWidth; // restart animation
         question.classList.add('appear');
-        setVerdict('Responde "NÃO" em voz alta…', 'hint');
+        setVerdict('😐 Mantém a cara de poker…', 'hint');
         $('lie-status').textContent = 'A IA está a analisar a tua cara…';
         markDot(i, 'current');
         sfx.play('tick');
