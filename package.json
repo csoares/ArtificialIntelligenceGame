@@ -10,7 +10,7 @@
     "electron": "electron .",
     "electron-dev": "ELECTRON_IS_DEV=1 electron .",
     "build": "electron-builder",
-    "build-all": "electron-builder -mwl",
+    "build-all": "electron-builder -mw",
     "publish": "electron-builder --publish always",
     "dist": "npm run build"
   },
@@ -44,6 +44,7 @@
   "build": {
     "appId": "com.ufp.emotionschallenge",
     "productName": "Emotions Challenge",
+    "artifactName": "Emotions-Challenge-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist-electron"
     },
@@ -70,8 +71,20 @@
     "mac": {
       "category": "public.app-category.education",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "identity": null,
       "extendInfo": {
@@ -82,12 +95,10 @@
     "win": {
       "target": "nsis"
     },
-    "linux": {
-      "target": "AppImage"
-    },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Emotions-Challenge-Setup-${version}.${ext}"
     },
     "publish": [
       {
@@ -96,7 +107,10 @@
         "repo": "ArtificialIntelligenceGame",
         "releaseType": "release"
       }
-    ]
+    ],
+    "dmg": {
+      "writeUpdateInfo": false
+    }
   },
   "repository": {
     "type": "git",
