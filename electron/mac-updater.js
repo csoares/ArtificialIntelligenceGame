@@ -82,83 +82,172 @@ function canReplace(bundle) {
     return { ok: true };
 }
 
-// GitHub downloads sometimes stall halfway. If no data arrives for STALL_TIMEOUT_MS, the
-// download is resumed from where it stopped (HTTP Range) instead of waiting forever.
+// GitHub release downloads can be slow per connection (~0.3 MB/s seen) and sometimes stall.
+// So the file is split into PARALLEL_PARTS byte ranges downloaded at the same time (about
+// PARALLEL_PARTS times faster), and any part that gets no data for STALL_TIMEOUT_MS resumes
+// from where it stopped. Servers without Range support fall back to a single stream.
+const PARALLEL_PARTS = 8;
+const MIN_PARALLEL_SIZE = 4 * 1024 * 1024;
 const STALL_TIMEOUT_MS = 20000;
 const MAX_ATTEMPTS = 8;
+
+class NoRangeSupport extends Error {}
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// fetch with an abort that fires when no data arrives for STALL_TIMEOUT_MS.
+// onChunk(Uint8Array) is awaited for every chunk (it may write to disk).
+async function fetchWithStallGuard(url, headers, onResponse, onChunk) {
+    const controller = new AbortController();
+    let stallTimer = null;
+    const arm = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => controller.abort(new Error('A transferência parou (sem dados).')), STALL_TIMEOUT_MS);
+    };
+    try {
+        arm();
+        const response = await fetch(url, { redirect: 'follow', headers, signal: controller.signal });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ao transferir ${url}`);
+        }
+        onResponse(response);
+        const reader = response.body.getReader();
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            arm();
+            await onChunk(value);
+        }
+    } finally {
+        clearTimeout(stallTimer);
+    }
+}
+
+// Total size if the server supports Range requests, otherwise null
+async function probeRangeSupport(url) {
+    let total = null;
+    try {
+        await fetchWithStallGuard(url, { Range: 'bytes=0-0' }, response => {
+            const match = /\/(\d+)$/.exec(response.headers.get('content-range') || '');
+            if (response.status === 206 && match) total = Number(match[1]);
+        }, async () => {});
+    } catch (e) {
+        return null;
+    }
+    return total;
+}
+
+// Download bytes [start, end] into the open file at the same offset, resuming after stalls
+async function downloadPart(url, file, start, end, onBytes, onRetry) {
+    let position = start;
+    for (let attempt = 1; ; attempt++) {
+        try {
+            await fetchWithStallGuard(url, { Range: `bytes=${position}-${end}` }, response => {
+                if (response.status !== 206) throw new NoRangeSupport('O servidor não aceita transferências por partes.');
+            }, async chunk => {
+                const bytes = Math.min(chunk.length, end + 1 - position);
+                if (bytes <= 0) return;
+                await file.write(chunk, 0, bytes, position);
+                position += bytes;
+                onBytes(bytes);
+            });
+            if (position <= end) throw new Error('A ligação fechou antes do fim da transferência.');
+            return;
+        } catch (error) {
+            if (error instanceof NoRangeSupport || attempt >= MAX_ATTEMPTS) throw error;
+            console.log(`Update part ${start}-${end} interrupted (${error.message}); resuming at ${position}`);
+            onRetry(true);
+            await wait(Math.min(1000 * attempt, 5000));
+            onRetry(false);
+        }
+    }
+}
+
+async function sha512OfFile(filePath) {
+    const hash = crypto.createHash('sha512');
+    for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk);
+    return hash.digest('base64');
+}
+
+async function downloadParallel(url, dest, total, onProgress) {
+    const partSize = Math.ceil(total / PARALLEL_PARTS);
+    let received = 0;
+    let retrying = 0;
+    const report = () => onProgress({ transferred: received, total, retrying: retrying > 0 });
+
+    const file = await fs.promises.open(dest, 'w');
+    try {
+        await file.truncate(total);
+        const parts = [];
+        for (let start = 0; start < total; start += partSize) {
+            const end = Math.min(total, start + partSize) - 1;
+            parts.push(downloadPart(url, file, start, end,
+                bytes => { received += bytes; report(); },
+                isRetrying => { retrying += isRetrying ? 1 : -1; report(); }));
+        }
+        await Promise.all(parts);
+    } finally {
+        await file.close();
+    }
+}
+
+// Single stream with resume (used when the server doesn't support Range requests)
+async function downloadSingle(url, dest, onProgress) {
+    let received = 0;
+    let total = 0;
+    fs.writeFileSync(dest, '');
+    for (let attempt = 1; ; attempt++) {
+        const out = fs.createWriteStream(dest, { flags: 'a' });
+        const finished = new Promise((resolve, reject) => {
+            out.on('finish', resolve);
+            out.on('error', reject);
+        });
+        try {
+            await fetchWithStallGuard(url, received > 0 ? { Range: `bytes=${received}-` } : {}, response => {
+                if (received > 0 && response.status !== 206) {
+                    received = 0; // Range ignored: start again from zero
+                    fs.truncateSync(dest, 0);
+                }
+                const length = Number(response.headers.get('content-length')) || 0;
+                if (length) total = received + length;
+            }, async chunk => {
+                received += chunk.length;
+                if (!out.write(chunk)) await new Promise(resolve => out.once('drain', resolve));
+                onProgress({ transferred: received, total, retrying: false });
+            });
+            out.end();
+            await finished;
+            if (total && received < total) throw new Error('A ligação fechou antes do fim da transferência.');
+            return;
+        } catch (error) {
+            out.end();
+            await finished.catch(() => {});
+            if (attempt >= MAX_ATTEMPTS) throw error;
+            console.log(`Update download interrupted (${error.message}); resuming at ${received} bytes`);
+            onProgress({ transferred: received, total, retrying: true });
+            await wait(Math.min(1000 * attempt, 5000));
+        }
+    }
+}
 
 /**
  * Download url to dest, verify its sha512 and report progress.
  * onProgress({ transferred, total, retrying }) is called as data arrives.
  */
 async function download(url, dest, expectedSha512, onProgress = () => {}) {
-    let hash = crypto.createHash('sha512');
-    let received = 0;
-    let total = 0;
-    fs.writeFileSync(dest, '');
-
-    for (let attempt = 1; ; attempt++) {
-        const controller = new AbortController();
-        let stallTimer = null;
-        const armStallTimer = () => {
-            clearTimeout(stallTimer);
-            stallTimer = setTimeout(() => controller.abort(new Error('A transferência parou (sem dados).')), STALL_TIMEOUT_MS);
-        };
-
+    const total = await probeRangeSupport(url);
+    if (total && total >= MIN_PARALLEL_SIZE) {
         try {
-            armStallTimer();
-            const headers = received > 0 ? { Range: `bytes=${received}-` } : {};
-            const response = await fetch(url, { redirect: 'follow', headers, signal: controller.signal });
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status} ao transferir ${url}`);
-            }
-
-            if (received > 0 && response.status !== 206) {
-                // The server ignored the Range request: start again from zero
-                received = 0;
-                hash = crypto.createHash('sha512');
-                fs.writeFileSync(dest, '');
-            }
-            const length = Number(response.headers.get('content-length')) || 0;
-            if (length) total = received + length;
-
-            const out = fs.createWriteStream(dest, { flags: 'a' });
-            const finished = new Promise((resolve, reject) => {
-                out.on('finish', resolve);
-                out.on('error', reject);
-            });
-            const reader = response.body.getReader();
-            try {
-                for (;;) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    armStallTimer();
-                    hash.update(value);
-                    received += value.length;
-                    if (!out.write(value)) {
-                        await new Promise(resolve => out.once('drain', resolve));
-                    }
-                    onProgress({ transferred: received, total, retrying: false });
-                }
-            } finally {
-                out.end();
-                await finished;
-            }
-            clearTimeout(stallTimer);
-            if (total && received < total) {
-                throw new Error('A ligação fechou antes do fim da transferência.');
-            }
-            break;
+            await downloadParallel(url, dest, total, onProgress);
         } catch (error) {
-            clearTimeout(stallTimer);
-            if (attempt >= MAX_ATTEMPTS) throw error;
-            console.log(`Update download interrupted (${error.message}); resuming at ${received} bytes`);
-            onProgress({ transferred: received, total, retrying: true });
-            await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 5000)));
+            if (!(error instanceof NoRangeSupport)) throw error;
+            await downloadSingle(url, dest, onProgress);
         }
+    } else {
+        await downloadSingle(url, dest, onProgress);
     }
 
-    if (expectedSha512 && hash.digest('base64') !== expectedSha512) {
+    if (expectedSha512 && (await sha512OfFile(dest)) !== expectedSha512) {
         throw new Error('O ficheiro transferido está corrompido (sha512 não coincide).');
     }
 }
