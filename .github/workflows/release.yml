@@ -1,20 +1,58 @@
 name: Build and Release
 
+# Every push to main publishes a new release. Installed apps pick it up through electron-updater.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.claude/**'
+      - 'start-server.*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build (e.g., v1.0.6)'
-        required: false
 
 permissions:
   contents: write
 
+# Never build two releases at the same time (version numbers would collide)
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Next version = latest v* tag + 1 patch. Bumping "version" in package.json above the
+      # latest tag (e.g. to 1.1.0 or 2.0.0) makes that the next release instead.
+      - name: Compute next version
+        id: next
+        run: |
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -n1 | sed 's/^v//')
+          pkg=$(node -p "require('./package.json').version")
+          if [ -z "$latest" ]; then
+            next="$pkg"
+          else
+            IFS=. read -r major minor patch <<< "$latest"
+            bumped="$major.$minor.$((patch + 1))"
+            highest=$(printf '%s\n%s\n' "$bumped" "$pkg" | sort -V | tail -n1)
+            next="$highest"
+          fi
+          echo "Latest tag: ${latest:-none} | package.json: $pkg | next: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        run: |
+          git tag "v${{ steps.next.outputs.version }}"
+          git push origin "v${{ steps.next.outputs.version }}"
+
   release:
+    needs: version
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -22,17 +60,20 @@ jobs:
         os: [macos-latest, windows-latest, ubuntu-latest]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-    - name: Install dependencies
-      run: npm install
+      - name: Install dependencies
+        run: npm install
 
-    - name: Build and Publish Electron app
-      run: npm run publish
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set version
+        run: npm version ${{ needs.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Build and Publish Electron app
+        run: npm run publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
