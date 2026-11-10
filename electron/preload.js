@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
     onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
     onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, progress) => callback(progress)),
+    // { version, transferred, total, retrying, done } while an update downloads; null when it stops
+    onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (event, state) => callback(state)),
 
     // Remove listeners
     removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)

@@ -30,8 +30,9 @@ There are no tests, no linter and no bundler. The frontend is plain browser JS l
 **Auto-update** lives in `electron/main.js` (production only):
 - The app checks on start and every 4 h (`UPDATE_CHECK_INTERVAL_MS`). The user is asked before anything downloads, but only while no game is running (checked with `executeJavaScript` on `gameState.isPlaying`). After the download the app restarts into the new version.
 - Windows and Linux use electron-updater's own installer.
+- While an update downloads (any platform), `reportUpdateProgress()` in `main.js` sends `update-progress` to the renderer, and `showUpdateProgress()` in `app.js` shows a banner (`#update-banner`) with the percentage and MB. The same function drives the Dock/taskbar progress bar.
 - macOS builds are unsigned (`identity: null`), and Squirrel.Mac refuses unsigned updates. So on macOS, `electron/mac-updater.js` handles it:
-  - It downloads the release `.zip` that matches the CPU architecture (both arm64 and x64 are built), verifies the sha512 from `latest-mac.yml` and extracts it with `ditto`.
+  - It downloads the release `.zip` that matches the CPU architecture (both arm64 and x64 are built), verifies the sha512 from `latest-mac.yml` and extracts it with `ditto`. GitHub downloads sometimes stall: if no data arrives for `STALL_TIMEOUT_MS`, the download resumes with an HTTP `Range` request (up to `MAX_ATTEMPTS`).
   - A detached bash script waits for the app to quit, swaps the `.app` bundle (and restores the old one if the copy fails), strips quarantine and relaunches.
   - If the app can't overwrite itself (running from a DMG, translocated, or no write permission), it opens the releases page instead.
   - The module has no Electron imports, so it can be tested with plain Node.

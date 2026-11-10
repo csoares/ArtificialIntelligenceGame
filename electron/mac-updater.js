@@ -82,37 +82,81 @@ function canReplace(bundle) {
     return { ok: true };
 }
 
-async function download(url, dest, expectedSha512, onProgress) {
-    const response = await fetch(url, { redirect: 'follow' });
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ao transferir ${url}`);
-    }
+// GitHub downloads sometimes stall halfway. If no data arrives for STALL_TIMEOUT_MS, the
+// download is resumed from where it stopped (HTTP Range) instead of waiting forever.
+const STALL_TIMEOUT_MS = 20000;
+const MAX_ATTEMPTS = 8;
 
-    const total = Number(response.headers.get('content-length')) || 0;
-    const hash = crypto.createHash('sha512');
-    const out = fs.createWriteStream(dest);
-    const finished = new Promise((resolve, reject) => {
-        out.on('finish', resolve);
-        out.on('error', reject);
-    });
-
+/**
+ * Download url to dest, verify its sha512 and report progress.
+ * onProgress({ transferred, total, retrying }) is called as data arrives.
+ */
+async function download(url, dest, expectedSha512, onProgress = () => {}) {
+    let hash = crypto.createHash('sha512');
     let received = 0;
-    const reader = response.body.getReader();
-    try {
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            hash.update(value);
-            received += value.length;
-            if (!out.write(value)) {
-                await new Promise(resolve => out.once('drain', resolve));
+    let total = 0;
+    fs.writeFileSync(dest, '');
+
+    for (let attempt = 1; ; attempt++) {
+        const controller = new AbortController();
+        let stallTimer = null;
+        const armStallTimer = () => {
+            clearTimeout(stallTimer);
+            stallTimer = setTimeout(() => controller.abort(new Error('A transferência parou (sem dados).')), STALL_TIMEOUT_MS);
+        };
+
+        try {
+            armStallTimer();
+            const headers = received > 0 ? { Range: `bytes=${received}-` } : {};
+            const response = await fetch(url, { redirect: 'follow', headers, signal: controller.signal });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status} ao transferir ${url}`);
             }
-            if (onProgress && total) onProgress(received / total);
+
+            if (received > 0 && response.status !== 206) {
+                // The server ignored the Range request: start again from zero
+                received = 0;
+                hash = crypto.createHash('sha512');
+                fs.writeFileSync(dest, '');
+            }
+            const length = Number(response.headers.get('content-length')) || 0;
+            if (length) total = received + length;
+
+            const out = fs.createWriteStream(dest, { flags: 'a' });
+            const finished = new Promise((resolve, reject) => {
+                out.on('finish', resolve);
+                out.on('error', reject);
+            });
+            const reader = response.body.getReader();
+            try {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    armStallTimer();
+                    hash.update(value);
+                    received += value.length;
+                    if (!out.write(value)) {
+                        await new Promise(resolve => out.once('drain', resolve));
+                    }
+                    onProgress({ transferred: received, total, retrying: false });
+                }
+            } finally {
+                out.end();
+                await finished;
+            }
+            clearTimeout(stallTimer);
+            if (total && received < total) {
+                throw new Error('A ligação fechou antes do fim da transferência.');
+            }
+            break;
+        } catch (error) {
+            clearTimeout(stallTimer);
+            if (attempt >= MAX_ATTEMPTS) throw error;
+            console.log(`Update download interrupted (${error.message}); resuming at ${received} bytes`);
+            onProgress({ transferred: received, total, retrying: true });
+            await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 5000)));
         }
-    } finally {
-        out.end();
     }
-    await finished;
 
     if (expectedSha512 && hash.digest('base64') !== expectedSha512) {
         throw new Error('O ficheiro transferido está corrompido (sha512 não coincide).');
@@ -173,5 +217,6 @@ module.exports = {
     currentAppBundle,
     canReplace,
     prepareUpdate,
-    installAndRelaunch
+    installAndRelaunch,
+    download // exported for tests
 };

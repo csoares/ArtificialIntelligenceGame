@@ -1516,6 +1516,61 @@ h1 {
 }
 
 /* ===================================
+   Update download banner (Electron)
+   =================================== */
+
+.update-banner {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 2000;              /* above the round intro and the lie-detector stage */
+    width: min(380px, calc(100vw - 24px));
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: rgba(28, 28, 30, 0.88);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    color: #fff;
+    box-shadow: var(--shadow-raised);
+    animation: materialize var(--dur-base) var(--ease-out);
+}
+
+.update-banner[hidden] {
+    display: none;
+}
+
+.update-banner-text {
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.update-banner-hint {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
+    margin: 2px 0 8px;
+}
+
+.update-banner-track {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+}
+
+.update-banner-fill {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--success-fill);
+    transition: width 250ms linear;
+}
+
+.update-banner.retrying .update-banner-fill {
+    background: var(--highlight);
+}
+
+/* ===================================
    Responsive
    =================================== */
 
