@@ -91,13 +91,13 @@
       {
         "provider": "github",
         "owner": "csoares",
-        "repo": "SantoTirsoChallenge",
+        "repo": "ArtificialIntelligenceGame",
         "releaseType": "release"
       }
     ]
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/csoares/SantoTirsoChallenge.git"
+    "url": "https://github.com/csoares/ArtificialIntelligenceGame.git"
   }
 }

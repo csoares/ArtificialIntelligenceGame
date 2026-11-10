@@ -177,7 +177,7 @@ app.on('window-all-closed', () => {
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const IDLE_RETRY_MS = 60 * 1000;                      // retry the prompt every minute while a game is running
-const RELEASES_URL = 'https://github.com/csoares/SantoTirsoChallenge/releases/latest';
+const RELEASES_URL = 'https://github.com/csoares/ArtificialIntelligenceGame/releases/latest';
 const IS_MAC = process.platform === 'darwin';
 const macUpdater = IS_MAC ? require('./mac-updater') : null;
 

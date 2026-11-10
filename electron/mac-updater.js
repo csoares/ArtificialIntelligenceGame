@@ -19,7 +19,7 @@ const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
 
-const RELEASE_DOWNLOAD_BASE = 'https://github.com/csoares/SantoTirsoChallenge/releases/download';
+const RELEASE_DOWNLOAD_BASE = 'https://github.com/csoares/ArtificialIntelligenceGame/releases/download';
 
 // Swap script: waits for the app to exit, replaces the bundle with rollback, relaunches.
 const SWAP_SCRIPT = `#!/bin/bash
