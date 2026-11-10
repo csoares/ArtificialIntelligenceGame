@@ -1,9 +1,326 @@
 // ===================================
-// DESAFIO DAS EMOÇÕES - UFP
-// Game completo com IA e Visão Computacional
+// DESAFIO DAS EMOÇÕES 2.0 - UFP
+// Jogo com IA e Visão Computacional (face-api.js)
 // ===================================
 
-// Game State
+// ===================================
+// CONSTANTS
+// ===================================
+
+// Emotions the player can be asked for (face-api.js also reports 'disgusted', which we never ask for)
+const EMOTIONS = ['happy', 'sad', 'angry', 'surprised', 'neutral', 'fearful'];
+
+// Emotions used in the "Sequência relâmpago" (fearful is too hard to hold quickly)
+const SEQUENCE_EMOTIONS = ['happy', 'sad', 'angry', 'surprised', 'neutral'];
+
+const EMOTION_TRANSLATIONS = {
+    happy: 'Feliz',
+    sad: 'Triste',
+    angry: 'Zangado',
+    surprised: 'Surpreso',
+    neutral: 'Neutro',
+    fearful: 'Com Medo',
+    disgusted: 'Enojado'
+};
+
+const EMOTION_EMOJI = {
+    happy: '😄',
+    sad: '😢',
+    angry: '😠',
+    surprised: '😲',
+    neutral: '😐',
+    fearful: '😨',
+    disgusted: '🤢'
+};
+
+const ROUND_TYPES = {
+    EMOTION: 'emotion',
+    SEQUENCE: 'sequence',
+    LIE: 'lie_detector',
+    TRICK: 'trick',
+    QUIZ: 'quiz'
+};
+
+const ROUND_TYPE_LABELS = {
+    emotion: '😄 Mostra a emoção',
+    sequence: '⚡ Sequência relâmpago',
+    lie_detector: '🚨 Detetor de mentiras',
+    trick: '🎭 Engana a IA',
+    quiz: '🧠 Pergunta'
+};
+
+// Order of rounds in one game (~5 minutes). Quiz questions are picked at random each game.
+const GAME_PLAN = [
+    ROUND_TYPES.EMOTION,
+    ROUND_TYPES.EMOTION,
+    ROUND_TYPES.QUIZ,
+    ROUND_TYPES.SEQUENCE,
+    ROUND_TYPES.LIE,
+    ROUND_TYPES.QUIZ,
+    ROUND_TYPES.TRICK,
+    ROUND_TYPES.EMOTION,
+    ROUND_TYPES.QUIZ,          // last quiz is always a code question
+    ROUND_TYPES.LIE           // ends with the "reveal"
+];
+
+// Round durations (seconds)
+const DURATION = {
+    emotion: 20,
+    trick: 20,
+    sequence: 30,
+    lie_detector: 18,       // 3 questions x 6s
+    quiz: 20,
+    code: 30
+};
+
+const MAX_POINTS_PER_ROUND = 100;
+const MAX_POINTS = GAME_PLAN.length * MAX_POINTS_PER_ROUND;
+
+// Detection tuning
+const DETECTION_INTERVAL_MS = 80;     // pause between detections
+const DETECTION_PERSISTENCE_MS = 500; // keep last detection to avoid flicker
+const DETECTION_THRESHOLD = 0.5;      // confidence to count an emotion as shown
+const HOLD_MS = 1000;                 // hold time for emotion/trick rounds
+const SEQUENCE_LENGTH = 5;
+const SEQUENCE_HOLD_MS = 600;         // hold time for each emotion in the sequence
+const LIE_QUESTIONS_PER_ROUND = 3;
+const LIE_QUESTION_MS = 6000;         // time each question stays on screen
+const NERVOUS_THRESHOLD = 0.65;       // "nervousness" (1 - neutral, smoothed) that triggers the alarm
+const NERVOUS_HOLD_MS = 500;          // how long it must stay above the threshold (talking shouldn't trigger it)
+const NERVOUS_SMOOTHING = 0.35;       // exponential smoothing factor for the meter (0-1, higher = jumpier)
+const LIE_MIN_FACE_RATIO = 0.5;       // a question only counts if the face was visible in >= 50% of frames
+const LIE_REVEAL_MS = 9000;           // how long the final "reveal" stays on screen
+
+// ===================================
+// CONTENT
+// ===================================
+
+// New question pool for v2 (code questions are flagged with `code`)
+const QUIZ_QUESTIONS = [
+    {
+        id: 'ml1',
+        question: 'Como é que a IA "aprendeu" a reconhecer emoções?',
+        options: [
+            'Alguém escreveu uma regra para cada cara',
+            'Treinou com milhares de fotos de caras já classificadas',
+            'Lê os teus pensamentos',
+            'Pergunta a uma pessoa em tempo real'
+        ],
+        correct: 1,
+        explanation: 'Chama-se aprendizagem supervisionada: a IA vê muitos exemplos com a resposta certa e descobre os padrões sozinha.',
+        educationalNote: 'Machine Learning é uma das áreas que estudas em Engenharia Informática!'
+    },
+    {
+        id: 'bias1',
+        question: 'Se uma IA só for treinada com fotos de adultos, o que pode acontecer com caras de crianças?',
+        options: [
+            'Funciona ainda melhor',
+            'Pode errar mais, porque nunca viu caras de crianças',
+            'Deixa de funcionar com adultos',
+            'Nada, a IA adapta-se sempre'
+        ],
+        correct: 1,
+        explanation: 'Isto chama-se enviesamento (bias): a IA só é tão boa quanto os dados com que foi treinada.',
+        educationalNote: 'Bons engenheiros escolhem dados variados para a IA ser justa com toda a gente.'
+    },
+    {
+        id: 'deepfake1',
+        question: 'O que é um deepfake?',
+        options: [
+            'Um vídeo falso criado por IA que parece real',
+            'Um tipo de vírus informático',
+            'Uma câmara subaquática',
+            'Um filtro que melhora a luz'
+        ],
+        correct: 0,
+        explanation: 'Deepfakes usam redes neuronais para trocar caras ou vozes. Por isso, confirma sempre as fontes!',
+        educationalNote: 'Também há engenheiros a criar IA que deteta deepfakes.'
+    },
+    {
+        id: 'conf1',
+        question: 'Quando a IA diz "Feliz 87%", o que significa o 87%?',
+        options: [
+            'Que estás 87% feliz',
+            'A confiança da IA na sua resposta',
+            'A qualidade da câmara',
+            'A percentagem da cara que está visível'
+        ],
+        correct: 1,
+        explanation: 'É a probabilidade que o modelo dá a essa resposta. Não mede o que sentes, mede o quanto a IA "acha" que acertou!',
+        educationalNote: 'Viste estas percentagens nas barras de emoções ao lado do vídeo.'
+    },
+    {
+        id: 'cover1',
+        question: 'Porque é que tapar metade da cara pode confundir a IA?',
+        options: [
+            'A IA fica envergonhada',
+            'Perde muitos dos pontos da cara que usa para decidir',
+            'A câmara desliga-se',
+            'Não confunde nada'
+        ],
+        correct: 1,
+        explanation: 'O modelo analisa 68 pontos (olhos, sobrancelhas, boca...). Sem metade deles, tem de adivinhar com menos informação.',
+        educationalNote: 'Testar onde a IA falha é uma parte importante do trabalho de um engenheiro.'
+    },
+    {
+        id: 'feel1',
+        question: 'Uma IA que reconhece emoções também sente emoções?',
+        options: [
+            'Sim, sente tudo o que deteta',
+            'Não, só reconhece padrões na imagem',
+            'Só sente alegria',
+            'Só quando está ligada à internet'
+        ],
+        correct: 1,
+        explanation: 'A IA faz cálculos com os números dos pixels. Reconhecer uma emoção não é o mesmo que senti-la!',
+        educationalNote: 'Perceber o que a IA consegue (e não consegue) fazer é essencial para a usar bem.'
+    },
+    {
+        id: 'use1',
+        question: 'Qual destas é uma boa utilização da deteção de emoções?',
+        options: [
+            'Espiar pessoas sem saberem',
+            'Detetar cansaço num condutor e sugerir uma pausa',
+            'Decidir as notas dos alunos',
+            'Escolher quem pode entrar numa loja'
+        ],
+        correct: 1,
+        explanation: 'Alguns carros já detetam sinais de cansaço e avisam o condutor. A IA ao serviço da segurança!',
+        educationalNote: 'Ética em IA: a mesma tecnologia pode ser usada bem ou mal. Os engenheiros têm de pensar nisso.'
+    },
+    {
+        id: 'privacy1',
+        question: 'O que é preciso antes de usar a câmara para analisar a cara de alguém?',
+        options: [
+            'Uma câmara 4K',
+            'O consentimento da pessoa',
+            'Internet rápida',
+            'Nada'
+        ],
+        correct: 1,
+        explanation: 'A imagem da tua cara é um dado pessoal. Na Europa, o RGPD protege-o: é preciso o teu consentimento.',
+        educationalNote: 'Privacidade e segurança de dados também fazem parte de Engenharia Informática.'
+    },
+    {
+        id: 'local1',
+        question: 'O que faz este jogo com a imagem da tua cara?',
+        options: [
+            'Envia-a para a internet',
+            'Analisa-a no computador, em tempo real, sem guardar fotos',
+            'Imprime-a',
+            'Guarda-a num álbum'
+        ],
+        correct: 1,
+        explanation: 'A IA corre aqui mesmo, no computador. Analisa cada imagem e esquece-a logo a seguir.',
+        educationalNote: 'Correr IA "no dispositivo" é mais rápido e protege a privacidade.'
+    },
+    {
+        id: 'code1',
+        code: true,
+        question: 'Completa o código do "Detetor de Mentiras":',
+        snippet: `se confianca_neutro < 0.35:
+    resultado = ?`,
+        options: ['"Cara de poker!"', '"MENTIRA DETETADA!"', '"Estás feliz"', '"Sem cara"'],
+        correct: 1,
+        explanation: 'Se a cara deixa de estar neutra, o "detetor" dispara. Repara: o código mede a cara, não a verdade!',
+        educationalNote: 'Uma condição "se" (if) é das primeiras coisas que aprendes a programar.'
+    },
+    {
+        id: 'code2',
+        code: true,
+        question: 'Quantas emoções é que este ciclo pede?',
+        snippet: `para i de 1 até 5:
+    pedir_emocao_aleatoria()`,
+        options: ['1', '4', '5', '6'],
+        correct: 2,
+        explanation: 'Um ciclo repete instruções. De 1 até 5 são 5 repetições: é assim que funciona a Sequência Relâmpago!',
+        educationalNote: 'Ciclos (loops) poupam-te a escrever a mesma coisa muitas vezes.'
+    },
+    {
+        id: 'code3',
+        code: true,
+        question: 'O que acontece quando este código Python corre?',
+        snippet: `emocoes = ["feliz", "triste", "zangado"]
+print(emocoes[3])`,
+        options: [
+            'Mostra "zangado"',
+            'Dá erro: a lista só tem as posições 0, 1 e 2',
+            'Mostra "feliz"',
+            'Mostra 3'
+        ],
+        correct: 1,
+        explanation: 'Em programação conta-se a partir do 0! A posição 3 não existe nesta lista.',
+        educationalNote: 'Encontrar erros destes (debugging) faz parte do dia a dia de um programador.'
+    },
+    {
+        id: 'code4',
+        code: true,
+        question: 'Quanto vale "pontos" no fim?',
+        snippet: `acertos = 3
+pontos = acertos * 10 + 5`,
+        options: ['18', '35', '45', '30'],
+        correct: 1,
+        explanation: 'Primeiro multiplica (3 × 10 = 30), depois soma 5. Tal como na matemática!',
+        educationalNote: 'Os jogos calculam pontuações exatamente assim.'
+    }
+];
+
+// "Engana a IA": the AI only checks the target emotion; the rule is the fun part (honour system)
+const TRICK_CHALLENGES = [
+    {
+        target: 'surprised',
+        rule: 'Sem abrir a boca! Só com os olhos e as sobrancelhas.',
+        note: 'A IA dá muito peso à boca aberta. Será que chega mexer só nos olhos?'
+    },
+    {
+        target: 'happy',
+        rule: 'Sem mostrar os dentes!',
+        note: 'Um sorriso não é só a boca: as bochechas e os olhos também contam.'
+    },
+    {
+        target: 'angry',
+        rule: 'Só com as sobrancelhas! A boca fica quieta.',
+        note: 'Sobrancelhas franzidas são um dos sinais que a IA procura na raiva.'
+    },
+    {
+        target: 'sad',
+        rule: 'Com uma mão a tapar metade da cara!',
+        note: 'Com metade dos 68 pontos tapados, a IA tem de adivinhar com menos informação.'
+    },
+    {
+        target: 'surprised',
+        rule: 'Com os olhos fechados!',
+        note: 'Sem olhos abertos, a IA só tem a boca e as sobrancelhas para decidir.'
+    }
+];
+
+// "Detetor de Mentiras": light, school-appropriate questions. The player always answers "não" out loud.
+const LIE_QUESTIONS = [
+    'Já fingiste estar doente para faltar a um teste?',
+    'Já disseste que leste um livro sem o teres lido?',
+    'Já mandaste uma mensagem à pessoa errada?',
+    'Já copiaste os TPC de um colega?',
+    'Já fingiste que a internet foi abaixo para sair de uma videochamada?',
+    'Já te riste de uma piada que não percebeste?',
+    'Já disseste "estou quase a chegar" quando ainda estavas em casa?',
+    'Já comeste a última fatia sem perguntar a ninguém?',
+    'Já disseste "estou a estudar" quando estavas no telemóvel?',
+    'Já usaste uma IA para fazer um trabalho da escola?',
+    'Já ouviste uma mensagem de voz em velocidade 2x?',
+    'Já fingiste que não viste uma mensagem?',
+    'Já deste like sem querer numa foto antiga de alguém?',
+    'Já fingiste estar a dormir para não ajudar em casa?',
+    'Já disseste "vi agora a tua mensagem" e era mentira?'
+];
+
+const LIE_REVEAL = 'Calma! A IA não detetou mentira nenhuma: só mediu se a tua cara saiu do neutro. ' +
+    'Nenhuma IA consegue ler pensamentos. É por isso que o AI Act europeu proíbe usar IA para inferir ' +
+    'emoções de pessoas em escolas e locais de trabalho (salvo por razões médicas ou de segurança).';
+
+// ===================================
+// GAME STATE
+// ===================================
+
 const gameState = {
     student: {
         firstName: '',
@@ -11,219 +328,27 @@ const gameState = {
         school: ''
     },
     currentRound: 0,
-    totalRounds: 19,
+    totalRounds: GAME_PLAN.length,
     score: 0,
     roundResults: [],
     isPlaying: false,
-    detectionInterval: null,
+    plan: [],              // [{type, question?, trick?}]
+    round: null,           // current round: {type, ended}
     roundTimer: null,
-    timeRemaining: 15,
-    usedEmotions: [],
-    currentQuestionType: null,
-    gameStructure: null // Will be populated with randomized structure at game start
+    timeRemaining: 0,
+    detectionToken: 0,
+    detectionTimeout: null,
+    lastEmotion: null,
+    lieQueue: [],
+    roundTimers: [],       // extra timeouts owned by the current round
+    rankingSaved: false
 };
 
-// Emotions to challenge (face-api.js supports these)
-const EMOTIONS = ['happy', 'sad', 'angry', 'surprised', 'neutral', 'fearful'];
-
-// Portuguese translations for emotions
-const EMOTION_TRANSLATIONS = {
-    'happy': 'Feliz',
-    'sad': 'Triste',
-    'angry': 'Zangado',
-    'surprised': 'Surpreso',
-    'neutral': 'Neutro',
-    'fearful': 'Com Medo',
-    'disgusted': 'Enojado'
-};
-
-// Question types
-const QUESTION_TYPES = {
-    EMOTION_CAMERA: 'emotion_camera',
-    QUIZ: 'quiz',
-    VISUAL: 'visual',
-    CODE: 'code',
-    GESTURE: 'gesture'
-};
-
-// Constants
-const EMOTION_ROUND_DURATION = 20; // seconds per emotion round
-const QUIZ_ROUND_DURATION = 30; // seconds per quiz round
-const CODE_ROUND_DURATION = 45; // seconds per code round
-const DETECTION_THRESHOLD = 0.5; // confidence threshold for emotion detection
-const SUCCESS_DURATION = 1000; // milliseconds to hold correct emotion
-
 // ===================================
-// QUIZ QUESTIONS DATABASE
+// UTILITIES
 // ===================================
 
-const QUIZ_QUESTIONS = [
-    // BLOCO 2: Como a IA Reconhece Emoções?
-    {
-        id: 'cv1',
-        type: QUESTION_TYPES.VISUAL,
-        question: 'Quantas faces vês nesta imagem?',
-        image: 'faces',
-        options: ['1 face', '2 faces', '3 faces', '4 faces'],
-        correct: 2,
-        explanation: 'A IA usa algoritmos de deteção de faces para identificar rostos em imagens!',
-        educationalNote: 'Em Engenharia Informática, aprendes a criar sistemas que identificam e analisam expressões faciais para reconhecer emoções!'
-    },
-    {
-        id: 'cv2',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Qual destas emoções é mais fácil para a IA detetar com precisão?',
-        options: ['Neutro', 'Feliz (sorriso)', 'Medo subtil', 'Tristeza ligeira'],
-        correct: 1,
-        explanation: 'O sorriso tem padrões faciais muito distintos: boca curvada para cima, bochechas elevadas e olhos contraídos!',
-        educationalNote: 'Machine Learning aprende padrões em milhares de imagens. Quanto mais expressiva a emoção, mais fácil é para a IA reconhecê-la!'
-    },
-    {
-        id: 'cv3',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Quantos pontos de referência faciais a IA usa para detetar emoções?',
-        options: ['10 pontos', '25 pontos', '68 pontos', '100 pontos'],
-        correct: 2,
-        explanation: 'A IA usa 68 pontos de referência (landmarks) no rosto: sobrancelhas, olhos, nariz, boca e contorno facial!',
-        educationalNote: 'Estes pontos são coordenadas precisas que permitem à IA "entender" expressões faciais, uma aplicação fascinante de Visão Computacional!'
-    },
-
-    // BLOCO 3: Inteligência Emocional e Tecnologia
-    {
-        id: 'app1',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Porque é importante que um engenheiro informático compreenda emoções humanas?',
-        options: ['Não é importante', 'Para criar interfaces mais intuitivas', 'Apenas para marketing', 'Para programar mais rápido'],
-        correct: 1,
-        explanation: 'A Inteligência Emocional ajuda engenheiros a criar sistemas que respondem melhor às necessidades dos utilizadores!',
-        educationalNote: 'UX Design + Inteligência Emocional = Aplicações que as pessoas adoram usar! Em EI aprendes a equilibrar tecnologia e psicologia!'
-    },
-    {
-        id: 'app2',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Qual destas aplicações usa reconhecimento de emoções para melhorar a experiência do utilizador?',
-        options: ['Calculadora simples', 'Sistema que deteta stress em motoristas', 'Bloco de notas', 'Relógio digital'],
-        correct: 1,
-        explanation: 'Carros inteligentes podem detetar stress ou cansaço e sugerir pausas, aumentando a segurança rodoviária!',
-        educationalNote: 'Inteligência Emocional Artificial pode salvar vidas! Engenheiros criam sistemas que "entendem" estados emocionais e reagem adequadamente!'
-    },
-    {
-        id: 'app3',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Qual é uma preocupação ética importante em sistemas de reconhecimento de emoções?',
-        options: ['Consumo de energia', 'Privacidade e consentimento dos utilizadores', 'Cor do interface', 'Velocidade do processador'],
-        correct: 1,
-        explanation: 'Engenheiros responsáveis devem garantir que sistemas de IA respeitam a privacidade e têm consentimento para analisar emoções!',
-        educationalNote: 'Ética em IA é fundamental! Em Engenharia Informática aprendes a criar tecnologia responsável e respeitadora dos direitos humanos!'
-    },
-
-    // BLOCO 4: Programação e Lógica Emocional
-    {
-        id: 'code1',
-        type: QUESTION_TYPES.CODE,
-        question: 'Completa o código para detetar um sorriso:',
-        code: `SE boca_curvada_para_cima E olhos_contraídos:
-    emoção = ?`,
-        options: ['Triste', 'Feliz', 'Zangado', 'Surpreso'],
-        correct: 1,
-        explanation: 'Boca curvada para cima + olhos contraídos (sorriso genuíno) = Feliz! Isto chama-se "Sorriso de Duchenne".',
-        educationalNote: 'Isto é lógica de programação (IF statements) aplicada a emoções! Em EI aprendes a traduzir comportamentos humanos para código!'
-    },
-    {
-        id: 'code2',
-        type: QUESTION_TYPES.CODE,
-        question: 'Ordena os passos de um sistema de deteção de emoções:',
-        code: `1. ???
-2. ???
-3. ???
-4. ???`,
-        options: [
-            '1.Capturar imagem → 2.Analisar pontos faciais → 3.Comparar com padrões → 4.Classificar emoção',
-            '1.Classificar emoção → 2.Capturar imagem → 3.Analisar pontos faciais → 4.Comparar com padrões',
-            '1.Comparar com padrões → 2.Classificar emoção → 3.Capturar imagem → 4.Analisar pontos faciais',
-            '1.Analisar pontos faciais → 2.Capturar imagem → 3.Classificar emoção → 4.Comparar com padrões'
-        ],
-        correct: 0,
-        explanation: 'Um sistema de IA emocional segue sempre esta pipeline: Capturar → Analisar → Comparar → Classificar!',
-        educationalNote: 'Isto é um algoritmo - uma sequência lógica de passos. Em EI aprendes a desenhar pipelines de processamento de dados!'
-    },
-    {
-        id: 'code3',
-        type: QUESTION_TYPES.CODE,
-        question: 'Encontra o erro neste código de análise de emoções:',
-        code: `function analisarEmocao(expressao) {
-    if (expressao.confianca > 0.8) {
-        return expressao.emocao;
-    }
-    retornar "Incerto";
-}`,
-        options: ['Linha 2: falta ponto e vírgula', 'Linha 5: deve ser "return" em vez de "retornar"', 'Linha 2: "if" está errado', 'Não há erro'],
-        correct: 1,
-        explanation: 'Em JavaScript usa-se "return", não "retornar"! Misturar português e inglês no código causa erros de sintaxe.',
-        educationalNote: 'Debugging é encontrar e corrigir erros - uma competência essencial! Bons engenheiros testam sistemas de IA para garantir precisão!'
-    },
-
-    // BLOCO 5: Aplicações e Futuro da IE
-    {
-        id: 'creative1',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Como pode a deteção de emoções ajudar em ambientes de aprendizagem?',
-        options: ['Não pode ajudar', 'Detetar confusão e adaptar explicações', 'Substituir professores', 'Apenas para dar notas'],
-        correct: 1,
-        explanation: 'Sistemas educativos inteligentes podem detetar quando um aluno está confuso e ajustar o ritmo ou método de ensino!',
-        educationalNote: 'Adaptive Learning usa IA + Inteligência Emocional para personalizar educação. Em EI podes criar sistemas que tornam a aprendizagem mais eficaz!'
-    },
-    {
-        id: 'creative2',
-        type: QUESTION_TYPES.QUIZ,
-        question: 'Em que áreas da Engenharia Informática trabalhas com Inteligência Emocional e reconhecimento de emoções?',
-        options: ['Apenas Bases de Dados', 'Inteligência Artificial e Human-Computer Interaction', 'Apenas Hardware', 'Design Gráfico tradicional'],
-        correct: 1,
-        explanation: 'Reconhecimento de emoções combina IA (Machine Learning, Computer Vision) com HCI (interação humano-computador)!',
-        educationalNote: 'Na UFP tens cadeiras de IA, Machine Learning, Computer Vision e Interação Pessoa-Máquina onde aprendes estas tecnologias fascinantes!'
-    }
-];
-
-// ===================================
-// GAME ROUNDS STRUCTURE (19 rounds)
-// ===================================
-
-const GAME_STRUCTURE = [
-    // Rounds 1-8: Emotion Detection with Camera
-    { round: 1, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 2, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 3, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 4, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 5, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 6, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 7, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-    { round: 8, type: QUESTION_TYPES.EMOTION_CAMERA, emotion: null },
-
-    // Rounds 9-11: Computer Vision Education
-    { round: 9, type: QUESTION_TYPES.VISUAL, questionId: 'cv1' },
-    { round: 10, type: QUESTION_TYPES.QUIZ, questionId: 'cv2' },
-    { round: 11, type: QUESTION_TYPES.QUIZ, questionId: 'cv3' },
-
-    // Rounds 12-14: Real World Applications
-    { round: 12, type: QUESTION_TYPES.QUIZ, questionId: 'app1' },
-    { round: 13, type: QUESTION_TYPES.QUIZ, questionId: 'app2' },
-    { round: 14, type: QUESTION_TYPES.QUIZ, questionId: 'app3' },
-
-    // Rounds 15-17: Code Challenge
-    { round: 15, type: QUESTION_TYPES.CODE, questionId: 'code1' },
-    { round: 16, type: QUESTION_TYPES.CODE, questionId: 'code2' },
-    { round: 17, type: QUESTION_TYPES.CODE, questionId: 'code3' },
-
-    // Rounds 18-19: Creative AI
-    { round: 18, type: QUESTION_TYPES.QUIZ, questionId: 'creative1' },
-    { round: 19, type: QUESTION_TYPES.QUIZ, questionId: 'creative2' }
-];
-
-// ===================================
-// UTILITY FUNCTIONS
-// ===================================
-
-// Fisher-Yates shuffle algorithm
+// Fisher-Yates shuffle
 function shuffleArray(array) {
     const shuffled = [...array];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -233,26 +358,106 @@ function shuffleArray(array) {
     return shuffled;
 }
 
-// Create a randomized game structure with shuffled quiz questions
-function createRandomizedGameStructure() {
-    // Copy the base structure
-    const structure = JSON.parse(JSON.stringify(GAME_STRUCTURE));
+function pickRandom(array) {
+    return array[Math.floor(Math.random() * array.length)];
+}
 
-    // Extract all quiz/code question IDs from rounds 9-19
-    const questionIds = structure
-        .slice(8, 19) // rounds 9-19
-        .map(round => round.questionId);
+function isKioskMode() {
+    return typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true;
+}
 
-    // Shuffle the question IDs
-    const shuffledQuestionIds = shuffleArray(questionIds);
+function $(id) {
+    return document.getElementById(id);
+}
 
-    // Reassign shuffled IDs back to rounds 9-19
-    for (let i = 8; i < 19; i++) {
-        structure[i].questionId = shuffledQuestionIds[i - 8];
+// Build this game's plan: assign random quiz questions (last quiz = code) and trick challenges
+function createGamePlan() {
+    const generalQuestions = shuffleArray(QUIZ_QUESTIONS.filter(q => !q.code));
+    const codeQuestions = shuffleArray(QUIZ_QUESTIONS.filter(q => q.code));
+    const tricks = shuffleArray(TRICK_CHALLENGES);
+
+    const quizCount = GAME_PLAN.filter(t => t === ROUND_TYPES.QUIZ).length;
+    let quizSeen = 0;
+
+    return GAME_PLAN.map(type => {
+        if (type === ROUND_TYPES.QUIZ) {
+            quizSeen++;
+            const question = quizSeen === quizCount ? codeQuestions.pop() : generalQuestions.pop();
+            return { type, question };
+        }
+        if (type === ROUND_TYPES.TRICK) {
+            return { type, trick: tricks.pop() };
+        }
+        return { type };
+    }).map((round, i, plan) => {
+        if (round.type === ROUND_TYPES.LIE) {
+            round.reveal = !plan.slice(i + 1).some(r => r.type === ROUND_TYPES.LIE);
+        }
+        return round;
+    });
+}
+
+// ===================================
+// SOUND EFFECTS (Web Audio, no files needed)
+// ===================================
+
+const sfx = (() => {
+    let ctx = null;
+
+    function unlock() {
+        try {
+            if (!ctx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (AudioCtx) ctx = new AudioCtx();
+            }
+            if (ctx && ctx.state === 'suspended') ctx.resume();
+        } catch (e) {
+            console.warn('Audio unavailable:', e);
+        }
     }
 
-    return structure;
-}
+    // Frequency sweep from f0 to f1 over `dur` seconds
+    function tone(type, f0, f1, dur, vol = 0.15, delay = 0) {
+        if (!ctx) return;
+        try {
+            const t = ctx.currentTime + delay;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(f0, t);
+            osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+            gain.gain.setValueAtTime(vol, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(t);
+            osc.stop(t + dur + 0.02);
+        } catch (e) {
+            // Sound is a nice-to-have; never break the game because of it
+        }
+    }
+
+    const sounds = {
+        boing: () => { tone('sine', 120, 600, 0.12, 0.25); tone('sine', 600, 180, 0.35, 0.2, 0.12); },
+        honk: () => { tone('sawtooth', 330, 300, 0.18, 0.12); tone('sawtooth', 330, 280, 0.25, 0.12, 0.22); },
+        slide: () => { tone('sine', 300, 1400, 0.45, 0.18); },
+        wah: () => {
+            tone('triangle', 392, 370, 0.3, 0.2);
+            tone('triangle', 370, 349, 0.3, 0.2, 0.32);
+            tone('triangle', 349, 262, 0.7, 0.2, 0.64);
+        },
+        pop: () => { tone('square', 900, 1500, 0.07, 0.08); },
+        alarm: () => { [0, 0.25, 0.5].forEach(d => { tone('square', 880, 660, 0.22, 0.09, d); }); },
+        tick: () => { tone('sine', 1200, 1200, 0.05, 0.06); },
+        success: () => { tone('triangle', 523, 523, 0.12, 0.15); tone('triangle', 784, 784, 0.25, 0.15, 0.12); },
+        fail: () => { tone('sawtooth', 220, 110, 0.4, 0.1); }
+    };
+
+    function play(name) {
+        if (sounds[name]) sounds[name]();
+    }
+
+    return { unlock, play };
+})();
 
 // ===================================
 // SCREEN MANAGEMENT
@@ -262,122 +467,105 @@ function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
     });
-    document.getElementById(screenId).classList.add('active');
+    $(screenId).classList.add('active');
+}
+
+function showCameraStage() {
+    $('camera-stage').style.display = '';
+    $('quiz-container').style.display = 'none';
+}
+
+function showQuizStage() {
+    $('camera-stage').style.display = 'none';
+    $('quiz-container').style.display = 'block';
 }
 
 // ===================================
-// REGISTRATION
+// REGISTRATION / KIOSK START
 // ===================================
 
-document.getElementById('registration-form').addEventListener('submit', async (e) => {
+$('registration-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    sfx.unlock();
 
-    gameState.student.firstName = document.getElementById('firstName').value.trim();
-    gameState.student.lastName = document.getElementById('lastName').value.trim();
-    gameState.student.school = document.getElementById('school').value.trim();
+    gameState.student.firstName = $('firstName').value.trim();
+    gameState.student.lastName = $('lastName').value.trim();
+    gameState.student.school = $('school').value.trim();
 
     showScreen('loading-screen');
     await initializeGame();
 });
 
-// ===================================
-// KIOSK MODE AUTO-START
-// ===================================
+window.addEventListener('DOMContentLoaded', () => {
+    buildEmotionBars();
+    renderRankings();
 
-// Check if kiosk mode is enabled on page load
-window.addEventListener('DOMContentLoaded', async () => {
-    if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true) {
+    if (isKioskMode()) {
         // In kiosk mode, skip registration and show start screen
         gameState.student.firstName = 'Visitante';
         gameState.student.lastName = '';
         gameState.student.school = 'UFP';
-
-        // Show kiosk start screen instead of registration
         showScreen('kiosk-start-screen');
     }
 });
 
-// Kiosk start button handler
-document.getElementById('kiosk-start-btn').addEventListener('click', async () => {
+$('kiosk-start-btn').addEventListener('click', async () => {
+    sfx.unlock();
     showScreen('loading-screen');
     await initializeGame();
 });
 
 // ===================================
-// INITIALIZATION
+// INITIALIZATION (models + camera)
 // ===================================
+
+function modelsLoaded() {
+    return faceapi.nets.tinyFaceDetector.isLoaded &&
+        faceapi.nets.faceLandmark68Net.isLoaded &&
+        faceapi.nets.faceExpressionNet.isLoaded;
+}
+
+function cameraIsLive() {
+    const stream = $('video').srcObject;
+    return !!stream && stream.getVideoTracks().some(track => track.readyState === 'live');
+}
 
 async function initializeGame() {
     try {
-        updateLoadingStatus('A carregar modelos de deteção facial...');
+        if (!modelsLoaded()) {
+            updateLoadingStatus('A carregar modelos de deteção facial...');
 
-        // Load face-api.js models
-        // In Electron, use custom app-resource:// protocol
-        // In browser, use relative path ./models
-        let MODEL_URL = './models';
+            // In Electron, models are served through the custom app-resource:// protocol
+            const MODEL_URL = window.electronAPI ? 'app-resource://models' : './models';
+            console.log('Loading face detection models from:', MODEL_URL);
 
-        if (window.electronAPI) {
-            // Use custom protocol registered in Electron main process
-            MODEL_URL = 'app-resource://models';
-            console.log('Running in Electron, using app-resource protocol');
-        }
-
-        console.log('Loading face detection models from:', MODEL_URL);
-
-        try {
             await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-            console.log('✓ TinyFaceDetector loaded');
-        } catch (e) {
-            console.error('✗ TinyFaceDetector failed:', e);
-            throw new Error('Falha ao carregar TinyFaceDetector');
-        }
-
-        try {
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-            console.log('✓ FaceLandmark68Net loaded');
-        } catch (e) {
-            console.error('✗ FaceLandmark68Net failed:', e);
-            throw new Error('Falha ao carregar FaceLandmark68Net');
-        }
-
-        try {
             await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
-            console.log('✓ FaceExpressionNet loaded');
-        } catch (e) {
-            console.error('✗ FaceExpressionNet failed:', e);
-            throw new Error('Falha ao carregar FaceExpressionNet');
+            console.log('All face-api models loaded successfully!');
         }
 
-        console.log('All face-api models loaded successfully!');
+        const video = $('video');
 
-        // Note: Handpose disabled to avoid conflicts with face-api.js
-        // Gesture detection will use simplified method
-        console.log('Handpose disabled - using simplified gesture detection');
+        // In kiosk mode the camera stays on between games, so only start it when needed
+        if (!cameraIsLive()) {
+            updateLoadingStatus('A iniciar câmara...');
 
-        updateLoadingStatus('A iniciar câmara...');
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 }
+            });
+            video.srcObject = stream;
 
-        // Get video stream
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480 }
-        });
+            await new Promise(resolve => {
+                video.onloadedmetadata = () => resolve();
+            });
+            await video.play();
 
-        const video = document.getElementById('video');
-        video.srcObject = stream;
+            // Wait a bit for the video to actually start streaming
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
 
-        await new Promise(resolve => {
-            video.onloadedmetadata = () => {
-                resolve();
-            };
-        });
-
-        // Start playing the video
-        await video.play();
-
-        // Wait a bit for the video to actually start streaming
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Set up canvas overlay
-        const canvas = document.getElementById('overlay');
+        const canvas = $('overlay');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
 
@@ -391,16 +579,16 @@ async function initializeGame() {
     } catch (error) {
         console.error('Initialization error:', error);
         alert('Erro: Não foi possível aceder à câmara ou carregar os modelos. Por favor verifica as permissões e tenta novamente.');
-        showScreen('registration-screen');
+        showScreen(isKioskMode() ? 'kiosk-start-screen' : 'registration-screen');
     }
 }
 
 function updateLoadingStatus(message) {
-    document.getElementById('loading-status').textContent = message;
+    $('loading-status').textContent = message;
 }
 
 // ===================================
-// GAME LOGIC
+// GAME FLOW
 // ===================================
 
 function startGame() {
@@ -408,12 +596,12 @@ function startGame() {
     gameState.score = 0;
     gameState.roundResults = [];
     gameState.isPlaying = true;
-    gameState.usedEmotions = [];
     gameState.lastEmotion = null;
+    gameState.round = null;
+    gameState.plan = createGamePlan();
+    gameState.lieQueue = shuffleArray(LIE_QUESTIONS);
 
-    // Create randomized game structure for this playthrough
-    gameState.gameStructure = createRandomizedGameStructure();
-
+    updateScoreDisplay();
     nextRound();
 }
 
@@ -424,307 +612,286 @@ function nextRound() {
     }
 
     gameState.currentRound++;
-    const roundConfig = gameState.gameStructure[gameState.currentRound - 1];
+    const roundConfig = gameState.plan[gameState.currentRound - 1];
+    gameState.round = { type: roundConfig.type, ended: false };
 
-    // Update progress
-    document.getElementById('current-round').textContent = `Ronda: ${gameState.currentRound}/${gameState.totalRounds}`;
+    $('current-round').textContent = `Ronda: ${gameState.currentRound}/${gameState.totalRounds}`;
+    $('round-type-label').textContent = ROUND_TYPE_LABELS[roundConfig.type];
+    resetChallengeBox();
 
-    // Route to appropriate round type
-    switch(roundConfig.type) {
-        case QUESTION_TYPES.EMOTION_CAMERA:
+    switch (roundConfig.type) {
+        case ROUND_TYPES.EMOTION:
             startEmotionRound();
             break;
-        case QUESTION_TYPES.QUIZ:
-        case QUESTION_TYPES.VISUAL:
-        case QUESTION_TYPES.CODE:
-            startQuizRound(roundConfig.questionId);
+        case ROUND_TYPES.TRICK:
+            startTrickRound(roundConfig.trick);
+            break;
+        case ROUND_TYPES.SEQUENCE:
+            startSequenceRound();
+            break;
+        case ROUND_TYPES.LIE:
+            startLieDetectorRound(roundConfig.reveal);
+            break;
+        case ROUND_TYPES.QUIZ:
+            startQuizRound(roundConfig.question);
             break;
     }
 }
 
-// ===================================
-// EMOTION DETECTION ROUNDS (1-8)
-// ===================================
-
-function startEmotionRound() {
-    gameState.timeRemaining = EMOTION_ROUND_DURATION;
-    gameState.currentQuestionType = QUESTION_TYPES.EMOTION_CAMERA;
-
-    // Select random emotion (avoid consecutive duplicates)
-    let targetEmotion;
-    let availableEmotions = EMOTIONS.filter(e => e !== gameState.lastEmotion);
-
-    if (availableEmotions.length === 0) {
-        availableEmotions = EMOTIONS;
-    }
-
-    targetEmotion = availableEmotions[Math.floor(Math.random() * availableEmotions.length)];
-    gameState.lastEmotion = targetEmotion;
-
-    // Show camera screen
-    showGameElement('camera');
-    hideGameElement('quiz');
-
-    // Update UI
-    document.getElementById('challenge-title').textContent = 'Mostra esta emoção:';
-    document.getElementById('target-emotion').textContent = EMOTION_TRANSLATIONS[targetEmotion];
-    document.getElementById('timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
-    document.getElementById('educational-note').textContent = 'A IA está a analisar 68 pontos no teu rosto!';
-
-    // Start detection
-    startEmotionDetection(targetEmotion);
-    startRoundTimer(EMOTION_ROUND_DURATION);
+// Hide every round-specific element so each round only shows what it needs
+function resetChallengeBox() {
+    $('challenge-rule').style.display = 'none';
+    $('sequence-track').style.display = 'none';
+    $('sequence-track').innerHTML = '';
+    $('lie-box').style.display = 'none';
+    $('lie-reveal').style.display = 'none';
+    $('target-emotion').style.display = '';
+    $('target-emotion').classList.remove('is-win', 'is-lose');
+    $('round-feedback').className = 'round-feedback';
+    $('round-feedback').textContent = '';
+    $('progress').style.width = '0%';
 }
 
-function startEmotionDetection(targetEmotion) {
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('overlay');
+function updateScoreDisplay() {
+    $('current-score').textContent = `Pontos: ${gameState.score}`;
+}
 
-    // Clear any existing detection interval
-    if (gameState.detectionInterval) {
-        clearInterval(gameState.detectionInterval);
-        gameState.detectionInterval = null;
-    }
+/**
+ * Finish the current round exactly once.
+ * outcome: 'win' | 'lose' | 'neutral' (quiz rounds show their own feedback)
+ */
+function endRound({ label, success, points, outcome = 'neutral', message = '', delay = 1800 }) {
+    const round = gameState.round;
+    if (!round || round.ended) return;
+    round.ended = true;
 
-    // Check if models are loaded
-    if (!faceapi.nets.tinyFaceDetector.isLoaded ||
-        !faceapi.nets.faceLandmark68Net.isLoaded ||
-        !faceapi.nets.faceExpressionNet.isLoaded) {
-        console.error('Face-api models not loaded!');
-        document.getElementById('detected-emotion').textContent = 'Erro: Modelos não carregados';
-        return;
-    }
+    stopDetectionLoop();
+    clearInterval(gameState.roundTimer);
+    clearRoundTimers();
 
-    // Ensure video dimensions are valid
-    if (video.videoWidth === 0 || video.videoHeight === 0) {
-        console.warn('Video dimensions not ready, waiting...');
-        setTimeout(() => startEmotionDetection(targetEmotion), 100);
-        return;
-    }
+    points = Math.max(0, Math.min(MAX_POINTS_PER_ROUND, Math.round(points)));
+    gameState.score += points;
+    updateScoreDisplay();
 
-    console.log('Starting emotion detection:', {
-        targetEmotion,
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        videoReadyState: video.readyState,
-        modelsLoaded: {
-            tinyFaceDetector: faceapi.nets.tinyFaceDetector.isLoaded,
-            faceLandmark68Net: faceapi.nets.faceLandmark68Net.isLoaded,
-            faceExpressionNet: faceapi.nets.faceExpressionNet.isLoaded
-        }
+    gameState.roundResults.push({
+        round: gameState.currentRound,
+        type: round.type,
+        label,
+        success,
+        points,
+        timestamp: new Date().toISOString()
     });
 
-    const displaySize = { width: video.videoWidth, height: video.videoHeight };
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    faceapi.matchDimensions(canvas, displaySize);
+    if (outcome !== 'neutral') {
+        const targetEl = $('target-emotion');
+        targetEl.classList.add(outcome === 'win' ? 'is-win' : 'is-lose');
 
-    let correctEmotionStartTime = null;
-    let roundCompleted = false;
-    let detectionAttempts = 0;
+        const feedback = $('round-feedback');
+        feedback.textContent = `${message} +${points}`;
+        feedback.className = `round-feedback show ${outcome}`;
 
-    // Anti-blink: store last valid detection and box coordinates
-    let lastValidDetection = null;
-    let lastValidTime = Date.now();
-    let lastValidBox = null;
-    const DETECTION_PERSISTENCE_MS = 500; // Keep last detection for 500ms
+        sfx.play(outcome === 'win' ? 'success' : 'fail');
+    }
 
-    // Draw a test indicator to verify canvas is working
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-    ctx.fillRect(10, 10, 20, 20);
-    console.log('Canvas test: green square drawn at top-left');
+    setTimeout(nextRound, delay);
+}
 
-    gameState.detectionInterval = setInterval(async () => {
-        if (!gameState.isPlaying || roundCompleted) return;
+// ===================================
+// ROUND TIMER
+// ===================================
 
-        const ctx = canvas.getContext('2d');
+function startRoundTimer(duration, onTimeout) {
+    clearInterval(gameState.roundTimer);
+    gameState.timeRemaining = duration;
+    updateTimerDisplay();
 
+    gameState.roundTimer = setInterval(() => {
+        gameState.timeRemaining--;
+        updateTimerDisplay();
+
+        const progress = ((duration - gameState.timeRemaining) / duration) * 100;
+        $('progress').style.width = `${progress}%`;
+
+        if (gameState.timeRemaining <= 0) {
+            clearInterval(gameState.roundTimer);
+            onTimeout();
+        }
+    }, 1000);
+}
+
+function updateTimerDisplay() {
+    const text = `${gameState.timeRemaining}s`;
+    const urgent = gameState.timeRemaining <= 5;
+    ['timer', 'quiz-timer'].forEach(id => {
+        $(id).textContent = text;
+        $(id).classList.toggle('urgent', urgent);
+    });
+}
+
+// ===================================
+// FACE DETECTION LOOP (shared by all camera rounds)
+// ===================================
+
+/**
+ * Runs face detection continuously and calls onFrame(expressions, fresh) on every tick.
+ * - expressions: face-api expressions object, or null when no face is visible
+ * - fresh: true when the expressions come from this frame (false = reused for anti-flicker)
+ * onFrame may return { state: 'match' | 'warn', progress: 0..1 } to colour the face marker.
+ */
+function startDetectionLoop(onFrame) {
+    stopDetectionLoop();
+    const token = gameState.detectionToken;
+
+    const video = $('video');
+    const canvas = $('overlay');
+
+    if (!modelsLoaded()) {
+        console.error('Face-api models not loaded!');
+        $('detected-emotion').textContent = 'Erro: Modelos não carregados';
+        return;
+    }
+
+    let lastValid = null;
+    let lastValidTime = 0;
+    let lastBox = null;
+
+    const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 });
+
+    const tick = async () => {
+        if (token !== gameState.detectionToken || !gameState.isPlaying) return;
+
+        // Video may not be ready yet
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+            gameState.detectionTimeout = setTimeout(tick, 100);
+            return;
+        }
+
+        let detection = null;
         try {
-            detectionAttempts++;
-
-            const detections = await faceapi
-                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
-                    inputSize: 416,
-                    scoreThreshold: 0.3
-                }))
+            detection = await faceapi
+                .detectSingleFace(video, detectorOptions)
                 .withFaceLandmarks()
                 .withFaceExpressions();
-
-            // Log first few attempts for debugging
-            if (detectionAttempts <= 5) {
-                console.log(`Detection attempt ${detectionAttempts}:`, detections ? 'Face found!' : 'No face detected');
-                if (detections) {
-                    console.log('Detection details:', {
-                        score: detections.detection.score,
-                        box: detections.detection.box,
-                        expressions: detections.expressions
-                    });
-                }
-            }
-
-            // Anti-blink: use current detection or last valid detection
-            let currentDetection = detections;
-            let useLastBox = false;
-
-            if (detections) {
-                lastValidDetection = detections;
-                lastValidTime = Date.now();
-            } else if (lastValidDetection && (Date.now() - lastValidTime) < DETECTION_PERSISTENCE_MS) {
-                // Use last valid detection if it's recent enough
-                currentDetection = lastValidDetection;
-                useLastBox = true;
-            }
-
-            // Only clear canvas if we have something to draw (prevents blank frames)
-            if (currentDetection || lastValidBox) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-
-            if (currentDetection) {
-            const resizedDetections = faceapi.resizeResults(currentDetection, displaySize);
-
-            // Calculate tight bounding box from face landmarks
-            const landmarks = resizedDetections.landmarks.positions;
-            const box = useLastBox && lastValidBox ? lastValidBox : calculateFaceBoundingBox(landmarks);
-
-            // Store box coordinates for next frame
-            if (!useLastBox) {
-                lastValidBox = box;
-            }
-
-            // Determine box color based on emotion match
-            const expressions = currentDetection.expressions;
-            const dominantEmotion = getDominantEmotion(expressions);
-            const confidence = expressions[dominantEmotion];
-            const isCorrectEmotion = dominantEmotion === targetEmotion && confidence > DETECTION_THRESHOLD;
-
-            // Calculate progress if correct emotion
-            let progressRatio = 0;
-            if (isCorrectEmotion && correctEmotionStartTime !== null) {
-                const holdDuration = Date.now() - correctEmotionStartTime;
-                progressRatio = Math.min(holdDuration / SUCCESS_DURATION, 1);
-            }
-
-            // Draw minimal corner markers with color feedback
-            const cornerLength = Math.min(box.width, box.height) * 0.08;
-
-            // Color: green if correct, yellow if matching
-            if (progressRatio >= 1) {
-                ctx.strokeStyle = '#00ff00'; // Bright green when complete
-            } else if (isCorrectEmotion) {
-                ctx.strokeStyle = '#ffeb3b'; // Yellow when holding
-            } else {
-                ctx.strokeStyle = '#00ff88'; // Default green
-            }
-
-            ctx.lineWidth = isCorrectEmotion ? 3 : 2;
-            ctx.lineCap = 'round';
-
-            // Draw corner markers (consolidated)
-            const corners = [
-                { x: box.x, y: box.y, dx: 1, dy: 1 },                                    // Top-left
-                { x: box.x + box.width, y: box.y, dx: -1, dy: 1 },                       // Top-right
-                { x: box.x, y: box.y + box.height, dx: 1, dy: -1 },                      // Bottom-left
-                { x: box.x + box.width, y: box.y + box.height, dx: -1, dy: -1 }          // Bottom-right
-            ];
-
-            corners.forEach(corner => {
-                ctx.beginPath();
-                ctx.moveTo(corner.x, corner.y + corner.dy * cornerLength);
-                ctx.lineTo(corner.x, corner.y);
-                ctx.lineTo(corner.x + corner.dx * cornerLength, corner.y);
-                ctx.stroke();
-            });
-
-            // Draw progress bar if holding correct emotion
-            if (isCorrectEmotion && progressRatio > 0) {
-                const barHeight = 4;
-                const barY = box.y + box.height + 10;
-
-                // Background bar
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-                ctx.fillRect(box.x, barY, box.width, barHeight);
-
-                // Progress bar
-                const gradient = ctx.createLinearGradient(box.x, 0, box.x + box.width, 0);
-                gradient.addColorStop(0, '#ffeb3b');
-                gradient.addColorStop(1, '#00ff00');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(box.x, barY, box.width * progressRatio, barHeight);
-            }
-
-            // Only update emotion text if we have a fresh detection (prevents blinking)
-            if (detections) {
-                document.getElementById('detected-emotion').textContent =
-                    `Detectado: ${EMOTION_TRANSLATIONS[dominantEmotion]} (${Math.round(confidence * 100)}%)`;
-            }
-
-            // Only process correct emotion detection with fresh detections
-            if (detections && dominantEmotion === targetEmotion && confidence > DETECTION_THRESHOLD) {
-                if (correctEmotionStartTime === null) {
-                    correctEmotionStartTime = Date.now();
-                }
-
-                const holdDuration = Date.now() - correctEmotionStartTime;
-
-                if (holdDuration >= SUCCESS_DURATION && !roundCompleted) {
-                    roundCompleted = true;
-                    roundSuccess(targetEmotion, gameState.timeRemaining, QUESTION_TYPES.EMOTION_CAMERA);
-                }
-            } else if (detections) {
-                correctEmotionStartTime = null;
-            }
-        } else {
-            // Only show "no face" message if detection has been lost for a while
-            if (!lastValidDetection || (Date.now() - lastValidTime) >= DETECTION_PERSISTENCE_MS) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                lastValidBox = null;
-                document.getElementById('detected-emotion').textContent = 'A detetar...';
-                correctEmotionStartTime = null;
-            }
-        }
         } catch (error) {
             console.error('Face detection error:', error);
-            document.getElementById('detected-emotion').textContent = 'Erro na deteção';
         }
-    }, 100);
+
+        // The round may have ended while we were waiting for the detector
+        if (token !== gameState.detectionToken) return;
+
+        const now = Date.now();
+        let current = detection;
+        if (detection) {
+            lastValid = detection;
+            lastValidTime = now;
+        } else if (lastValid && now - lastValidTime < DETECTION_PERSISTENCE_MS) {
+            current = lastValid;
+        } else {
+            lastValid = null;
+            lastBox = null;
+        }
+
+        const feedback = onFrame(current ? current.expressions : null, !!detection) || {};
+        if (token !== gameState.detectionToken) return; // onFrame ended the round
+
+        // Draw face marker
+        if (canvas.width !== video.videoWidth) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (current) {
+            if (detection) {
+                const resized = faceapi.resizeResults(detection, { width: video.videoWidth, height: video.videoHeight });
+                lastBox = calculateFaceBoundingBox(resized.landmarks.positions);
+            }
+            if (lastBox) drawFaceMarker(ctx, lastBox, feedback);
+        }
+
+        // Live text + emotion bars
+        if (detection) {
+            const dominant = getDominantEmotion(detection.expressions);
+            $('detected-emotion').textContent =
+                `A IA vê: ${EMOTION_EMOJI[dominant]} ${EMOTION_TRANSLATIONS[dominant]} (${Math.round(detection.expressions[dominant] * 100)}%)`;
+            updateEmotionBars(detection.expressions);
+        } else if (!current) {
+            $('detected-emotion').textContent = '👀 À procura da tua cara...';
+            updateEmotionBars(null);
+        }
+
+        gameState.detectionTimeout = setTimeout(tick, DETECTION_INTERVAL_MS);
+    };
+
+    tick();
+}
+
+function stopDetectionLoop() {
+    gameState.detectionToken++;
+    clearTimeout(gameState.detectionTimeout);
+    const canvas = $('overlay');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function drawFaceMarker(ctx, box, { state, progress = 0 }) {
+    const cornerLength = Math.min(box.width, box.height) * 0.12;
+
+    if (state === 'warn') {
+        ctx.strokeStyle = '#ff5252';
+    } else if (state === 'match') {
+        ctx.strokeStyle = progress >= 1 ? '#00ff00' : '#ffeb3b';
+    } else {
+        ctx.strokeStyle = '#00ff88';
+    }
+    ctx.lineWidth = state ? 4 : 2;
+    ctx.lineCap = 'round';
+
+    const corners = [
+        { x: box.x, y: box.y, dx: 1, dy: 1 },
+        { x: box.x + box.width, y: box.y, dx: -1, dy: 1 },
+        { x: box.x, y: box.y + box.height, dx: 1, dy: -1 },
+        { x: box.x + box.width, y: box.y + box.height, dx: -1, dy: -1 }
+    ];
+    corners.forEach(corner => {
+        ctx.beginPath();
+        ctx.moveTo(corner.x, corner.y + corner.dy * cornerLength);
+        ctx.lineTo(corner.x, corner.y);
+        ctx.lineTo(corner.x + corner.dx * cornerLength, corner.y);
+        ctx.stroke();
+    });
+
+    // Hold progress bar under the face
+    if (progress > 0) {
+        const barHeight = 6;
+        const barY = box.y + box.height + 10;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(box.x, barY, box.width, barHeight);
+        const gradient = ctx.createLinearGradient(box.x, 0, box.x + box.width, 0);
+        gradient.addColorStop(0, '#ffeb3b');
+        gradient.addColorStop(1, '#00ff00');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(box.x, barY, box.width * Math.min(progress, 1), barHeight);
+    }
 }
 
 function calculateFaceBoundingBox(landmarks) {
-    // Use eyes and mouth for tight box calculation
-    // Landmarks: 36-47=eyes, 48-67=mouth, 17-26=eyebrows
+    // Landmarks: 17-26 eyebrows, 36-47 eyes, 48-67 mouth
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-    // Use eyes (36-47) and mouth (48-59) for width
-    for (let i = 36; i <= 47; i++) {
+    for (let i = 36; i <= 59; i++) {
         if (landmarks[i]) {
             minX = Math.min(minX, landmarks[i].x);
             maxX = Math.max(maxX, landmarks[i].x);
         }
     }
-    for (let i = 48; i <= 59; i++) {
-        if (landmarks[i]) {
-            minX = Math.min(minX, landmarks[i].x);
-            maxX = Math.max(maxX, landmarks[i].x);
-        }
-    }
-
-    // Top: eyebrow top (landmarks 17-26)
     for (let i = 17; i <= 26; i++) {
-        if (landmarks[i]) {
-            minY = Math.min(minY, landmarks[i].y);
-        }
+        if (landmarks[i]) minY = Math.min(minY, landmarks[i].y);
     }
-
-    // Bottom: mouth bottom (landmarks 57-59)
     for (let i = 57; i <= 59; i++) {
-        if (landmarks[i]) {
-            maxY = Math.max(maxY, landmarks[i].y);
-        }
+        if (landmarks[i]) maxY = Math.max(maxY, landmarks[i].y);
     }
 
-    // Add proportional padding for complete face
     const faceWidth = maxX - minX;
     const foreheadSpace = faceWidth * 0.15;
     const chinSpace = faceWidth * 0.2;
@@ -733,7 +900,7 @@ function calculateFaceBoundingBox(landmarks) {
     return {
         x: minX - sideSpace,
         y: minY - foreheadSpace,
-        width: (maxX - minX) + (sideSpace * 2),
+        width: faceWidth + sideSpace * 2,
         height: (maxY - minY) + foreheadSpace + chinSpace
     };
 }
@@ -741,236 +908,418 @@ function calculateFaceBoundingBox(landmarks) {
 function getDominantEmotion(expressions) {
     let maxEmotion = 'neutral';
     let maxValue = 0;
-
     for (const [emotion, value] of Object.entries(expressions)) {
         if (value > maxValue) {
             maxValue = value;
             maxEmotion = emotion;
         }
     }
-
     return maxEmotion;
 }
 
 // ===================================
-// QUIZ ROUNDS (9-18, 20)
+// LIVE EMOTION BARS
 // ===================================
 
-function startQuizRound(questionId) {
-    gameState.currentQuestionType = QUESTION_TYPES.QUIZ;
+function buildEmotionBars() {
+    const container = $('emotion-bars');
+    container.innerHTML = '';
+    EMOTIONS.forEach(emotion => {
+        const row = document.createElement('div');
+        row.className = 'emotion-bar-row';
+        row.dataset.emotion = emotion;
+        row.innerHTML = `
+            <span class="emotion-bar-label">${EMOTION_EMOJI[emotion]} ${EMOTION_TRANSLATIONS[emotion]}</span>
+            <span class="emotion-bar-track"><span class="emotion-bar-fill"></span></span>
+            <span class="emotion-bar-value">0%</span>
+        `;
+        container.appendChild(row);
+    });
+}
 
-    const question = QUIZ_QUESTIONS.find(q => q.id === questionId);
-    if (!question) return;
+function updateEmotionBars(expressions) {
+    document.querySelectorAll('.emotion-bar-row').forEach(row => {
+        const value = expressions ? (expressions[row.dataset.emotion] || 0) : 0;
+        const pct = Math.round(value * 100);
+        row.querySelector('.emotion-bar-fill').style.width = `${pct}%`;
+        row.querySelector('.emotion-bar-value').textContent = `${pct}%`;
+        row.classList.toggle('top', expressions !== null && value >= DETECTION_THRESHOLD);
+    });
+}
 
-    gameState.timeRemaining = question.type === QUESTION_TYPES.CODE ? CODE_ROUND_DURATION : QUIZ_ROUND_DURATION;
+// ===================================
+// HOLD DETECTOR (emotion, trick and sequence rounds)
+// ===================================
 
-    // Hide camera, show quiz
-    hideGameElement('camera');
-    showGameElement('quiz');
+// Returns a function that tracks how long `target` has been held on fresh frames
+function createHoldTracker(holdMs) {
+    let holdStart = null;
+    return function track(expressions, fresh, target) {
+        if (!expressions) {
+            holdStart = null;
+            return { matched: false, progress: 0, done: false };
+        }
+        const dominant = getDominantEmotion(expressions);
+        const matched = dominant === target && expressions[dominant] > DETECTION_THRESHOLD;
 
-    // Update UI
-    document.getElementById('challenge-title').textContent = 'Pergunta sobre IA:';
-    document.getElementById('quiz-question').textContent = question.question;
-    document.getElementById('quiz-timer').textContent = `Tempo: ${gameState.timeRemaining}s`;
-    document.getElementById('quiz-educational-note').textContent = question.educationalNote;
+        if (fresh) {
+            if (matched) {
+                if (holdStart === null) holdStart = Date.now();
+            } else {
+                holdStart = null;
+            }
+        }
 
-    // Show code if code question
-    if (question.code) {
-        document.getElementById('code-block').style.display = 'block';
-        document.getElementById('code-content').textContent = question.code;
-    } else {
-        document.getElementById('code-block').style.display = 'none';
+        const progress = matched && holdStart !== null ? (Date.now() - holdStart) / holdMs : 0;
+        const done = fresh && matched && progress >= 1;
+        if (done) holdStart = null;
+        return { matched, progress, done };
+    };
+}
+
+function pickEmotion(pool) {
+    const options = pool.filter(e => e !== gameState.lastEmotion);
+    const emotion = pickRandom(options.length ? options : pool);
+    gameState.lastEmotion = emotion;
+    return emotion;
+}
+
+// ===================================
+// ROUND: MOSTRA A EMOÇÃO / ENGANA A IA
+// ===================================
+
+function startEmotionRound() {
+    runHoldEmotionRound({
+        target: pickEmotion(EMOTIONS),
+        title: 'Mostra esta emoção:',
+        note: 'A IA está a analisar 68 pontos no teu rosto!',
+        duration: DURATION.emotion,
+        type: ROUND_TYPES.EMOTION
+    });
+}
+
+function startTrickRound(trick) {
+    gameState.lastEmotion = trick.target;
+    runHoldEmotionRound({
+        target: trick.target,
+        title: 'Engana a IA! Mostra:',
+        rule: trick.rule,
+        note: trick.note,
+        duration: DURATION.trick,
+        type: ROUND_TYPES.TRICK
+    });
+}
+
+function runHoldEmotionRound({ target, title, rule, note, duration, type }) {
+    showCameraStage();
+
+    $('challenge-title').textContent = title;
+    $('target-emotion').textContent = `${EMOTION_EMOJI[target]} ${EMOTION_TRANSLATIONS[target]}`;
+    $('educational-note').textContent = note;
+    if (rule) {
+        $('challenge-rule').textContent = `Regra: ${rule}`;
+        $('challenge-rule').style.display = 'block';
     }
 
-    // Show visual if visual question
-    if (question.type === QUESTION_TYPES.VISUAL) {
-        showVisualQuestion(question.image);
-    } else {
-        document.getElementById('visual-container').style.display = 'none';
+    const label = type === ROUND_TYPES.TRICK
+        ? `Engana a IA: ${EMOTION_TRANSLATIONS[target]}`
+        : EMOTION_TRANSLATIONS[target];
+    const track = createHoldTracker(HOLD_MS);
+
+    startDetectionLoop((expressions, fresh) => {
+        const { matched, progress, done } = track(expressions, fresh, target);
+        if (done) {
+            // Faster = more points (40 for just making it, up to 100)
+            const points = 40 + 60 * (gameState.timeRemaining / duration);
+            endRound({ label, success: true, points, outcome: 'win', message: '✔ Boa!' });
+        }
+        return { state: matched ? 'match' : null, progress };
+    });
+
+    startRoundTimer(duration, () => {
+        endRound({ label, success: false, points: 0, outcome: 'lose', message: '⏱ Tempo esgotado!' });
+    });
+}
+
+// ===================================
+// ROUND: SEQUÊNCIA RELÂMPAGO
+// ===================================
+
+function startSequenceRound() {
+    showCameraStage();
+
+    // Build a sequence with no consecutive repeats
+    const sequence = [];
+    while (sequence.length < SEQUENCE_LENGTH) {
+        const options = SEQUENCE_EMOTIONS.filter(e => e !== sequence[sequence.length - 1]);
+        sequence.push(pickRandom(options));
     }
 
-    // Create answer buttons with randomized positions
-    const optionsContainer = document.getElementById('quiz-options');
+    $('challenge-title').textContent = `Faz as ${SEQUENCE_LENGTH} emoções o mais rápido possível!`;
+    $('educational-note').textContent = 'A IA analisa cerca de 10 imagens por segundo. Consegues ser mais rápido do que ela?';
+
+    const track = $('sequence-track');
+    track.style.display = 'flex';
+    sequence.forEach((emotion, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'sequence-chip';
+        chip.dataset.index = i;
+        chip.innerHTML = `<span class="chip-emoji">${EMOTION_EMOJI[emotion]}</span><span class="chip-label">${EMOTION_TRANSLATIONS[emotion]}</span>`;
+        track.appendChild(chip);
+    });
+
+    let index = 0;
+    const holdTrack = createHoldTracker(SEQUENCE_HOLD_MS);
+
+    const showCurrent = () => {
+        track.querySelectorAll('.sequence-chip').forEach((chip, i) => {
+            chip.classList.toggle('current', i === index);
+            chip.classList.toggle('done', i < index);
+        });
+        if (index < sequence.length) {
+            $('target-emotion').textContent = `${EMOTION_EMOJI[sequence[index]]} ${EMOTION_TRANSLATIONS[sequence[index]]}`;
+        }
+    };
+    showCurrent();
+
+    const label = 'Sequência relâmpago';
+
+    startDetectionLoop((expressions, fresh) => {
+        const { matched, progress, done } = holdTrack(expressions, fresh, sequence[index]);
+        if (done) {
+            index++;
+            sfx.play('pop');
+            showCurrent();
+            if (index === sequence.length) {
+                // 15 points per emotion + up to 25 time bonus
+                const points = 15 * SEQUENCE_LENGTH + 25 * (gameState.timeRemaining / DURATION.sequence);
+                endRound({ label: `${label} (${index}/${SEQUENCE_LENGTH})`, success: true, points, outcome: 'win', message: '⚡ Relâmpago!' });
+            }
+            return { state: 'match', progress: 1 };
+        }
+        return { state: matched ? 'match' : null, progress };
+    });
+
+    startRoundTimer(DURATION.sequence, () => {
+        endRound({
+            label: `${label} (${index}/${SEQUENCE_LENGTH})`,
+            success: false,
+            points: 15 * index,
+            outcome: index > 0 ? 'win' : 'lose',
+            message: `⏱ ${index}/${SEQUENCE_LENGTH} emoções`
+        });
+    });
+}
+
+// ===================================
+// ROUND: DETETOR DE MENTIRAS
+// ===================================
+
+/**
+ * The AI "pretends" to be a lie detector. The player answers "não" out loud to each question
+ * and must keep a poker face. "Nervousness" is simply 1 - neutral (smoothed): if it stays above
+ * NERVOUS_THRESHOLD for NERVOUS_HOLD_MS, the alarm goes off for that question.
+ * Questions advance on fixed 6s slots so the round always lasts the same time.
+ */
+function startLieDetectorRound(reveal) {
+    showCameraStage();
+
+    $('challenge-title').textContent = 'Detetor de mentiras: responde "NÃO" a tudo!';
+    $('target-emotion').style.display = 'none';
+    $('educational-note').textContent = 'A IA está a analisar as tuas micro-expressões... Mantém a cara de poker!';
+    $('lie-box').style.display = 'block';
+
+    if (gameState.lieQueue.length < LIE_QUESTIONS_PER_ROUND) {
+        gameState.lieQueue = shuffleArray(LIE_QUESTIONS);
+    }
+    const questions = gameState.lieQueue.splice(0, LIE_QUESTIONS_PER_ROUND);
+
+    // Per-question state
+    const results = [];        // 'pass' | 'caught' | 'noface'
+    let index = -1;
+    let caught = false;
+    let framesTotal = 0;
+    let framesWithFace = 0;
+    let nervous = 0;
+    let nervousSince = null;
+
+    const dots = $('lie-dots');
+    dots.innerHTML = questions.map(() => '<span class="lie-dot"></span>').join('');
+
+    const setVerdict = (text, kind) => {
+        const verdict = $('lie-verdict');
+        verdict.textContent = text;
+        verdict.className = `lie-verdict ${kind || ''}`;
+    };
+
+    const finishQuestion = () => {
+        if (index < 0) return;
+        let result = 'pass';
+        if (caught) result = 'caught';
+        else if (framesTotal === 0 || framesWithFace / framesTotal < LIE_MIN_FACE_RATIO) result = 'noface';
+        results.push(result);
+        dots.children[index].className = `lie-dot ${result}`;
+    };
+
+    const nextQuestion = () => {
+        finishQuestion();
+        index++;
+        if (index >= questions.length) return;
+
+        caught = false;
+        framesTotal = 0;
+        framesWithFace = 0;
+        nervousSince = null;
+
+        $('lie-question').textContent = questions[index];
+        $('lie-question').classList.remove('appear');
+        void $('lie-question').offsetWidth; // restart animation
+        $('lie-question').classList.add('appear');
+        setVerdict('Responde "NÃO" em voz alta!', '');
+        [...dots.children].forEach((dot, i) => dot.classList.toggle('current', i === index));
+        sfx.play('tick');
+    };
+
+    const updateMeter = () => {
+        const pct = Math.round(nervous * 100);
+        $('lie-meter-fill').style.width = `${pct}%`;
+        $('lie-meter-fill').classList.toggle('danger', nervous > NERVOUS_THRESHOLD);
+        $('lie-meter-value').textContent = `${pct}%`;
+    };
+
+    nextQuestion();
+    for (let i = 1; i < questions.length; i++) {
+        gameState.roundTimers.push(setTimeout(nextQuestion, i * LIE_QUESTION_MS));
+    }
+
+    startDetectionLoop((expressions, fresh) => {
+        if (!fresh) return {};
+        framesTotal++;
+
+        if (!expressions) {
+            if (!caught) setVerdict('👀 Mostra a cara! Sem cara não há prova...', 'warn');
+            return {};
+        }
+        framesWithFace++;
+
+        const raw = 1 - (expressions.neutral || 0);
+        nervous = nervous + NERVOUS_SMOOTHING * (raw - nervous);
+        updateMeter();
+
+        if (caught) return { state: 'warn' };
+
+        if (nervous > NERVOUS_THRESHOLD) {
+            const now = Date.now();
+            if (nervousSince === null) nervousSince = now;
+            if (now - nervousSince >= NERVOUS_HOLD_MS) {
+                caught = true;
+                setVerdict('🚨 MENTIRA DETETADA! 🚨', 'caught');
+                $('video-container').classList.add('alarm');
+                gameState.roundTimers.push(setTimeout(() => $('video-container').classList.remove('alarm'), 1200));
+                sfx.play('alarm');
+            }
+            return { state: 'warn' };
+        }
+
+        nervousSince = null;
+        setVerdict('😐 Cara de poker... por enquanto', 'ok');
+        return { state: 'match' };
+    });
+
+    startRoundTimer(DURATION.lie_detector, () => {
+        finishQuestion();
+        index = questions.length; // stop any late question switch
+
+        const passed = results.filter(r => r === 'pass').length;
+        const total = questions.length;
+        const win = passed >= Math.ceil(total / 2);
+
+        if (reveal) {
+            $('lie-box').style.display = 'none';
+            $('challenge-title').textContent = '🤯 A verdade sobre o detetor de mentiras';
+            $('educational-note').textContent = 'Reconhecer uma expressão não é o mesmo que saber o que pensas ou sentes.';
+            $('lie-reveal').textContent = LIE_REVEAL;
+            $('lie-reveal').style.display = 'block';
+        }
+
+        endRound({
+            label: `Detetor de mentiras (${passed}/${total} sem ser apanhado)`,
+            success: win,
+            points: (MAX_POINTS_PER_ROUND * passed) / total,
+            outcome: win ? 'win' : 'lose',
+            message: win ? `😐 Cara de poker! ${passed}/${total}` : `🚨 Apanhado! ${passed}/${total}`,
+            delay: reveal ? LIE_REVEAL_MS : 2000
+        });
+    });
+}
+
+function clearRoundTimers() {
+    gameState.roundTimers.forEach(id => clearTimeout(id));
+    gameState.roundTimers = [];
+}
+
+// ===================================
+// ROUND: QUIZ
+// ===================================
+
+function startQuizRound(question) {
+    showQuizStage();
+
+    const duration = question.code ? DURATION.code : DURATION.quiz;
+
+    $('quiz-question').textContent = question.question;
+    $('quiz-educational-note').textContent = question.educationalNote;
+    $('quiz-explanation').style.display = 'none';
+
+    if (question.snippet) {
+        $('code-block').style.display = 'block';
+        $('code-content').textContent = question.snippet;
+    } else {
+        $('code-block').style.display = 'none';
+    }
+
+    // Shuffle options and remember where the correct one ended up
+    const shuffled = shuffleArray(question.options.map((text, index) => ({ text, index })));
+    const correctIndex = shuffled.findIndex(opt => opt.index === question.correct);
+
+    const optionsContainer = $('quiz-options');
     optionsContainer.innerHTML = '';
-
-    // Create array of options with their original indices
-    const optionsWithIndices = question.options.map((option, index) => ({
-        text: option,
-        originalIndex: index
-    }));
-
-    // Shuffle the options
-    const shuffledOptions = shuffleArray(optionsWithIndices);
-
-    // Find the new position of the correct answer
-    const newCorrectIndex = shuffledOptions.findIndex(opt => opt.originalIndex === question.correct);
-
-    // Create buttons with shuffled options
-    shuffledOptions.forEach((option, index) => {
+    shuffled.forEach((option, index) => {
         const button = document.createElement('button');
         button.className = 'quiz-option-btn';
         button.textContent = option.text;
-        button.onclick = () => selectQuizAnswer(index, newCorrectIndex, question.explanation);
+        button.onclick = () => answerQuiz(index, correctIndex, question);
         optionsContainer.appendChild(button);
     });
 
-    startRoundTimer(gameState.timeRemaining);
+    startRoundTimer(duration, () => answerQuiz(-1, correctIndex, question));
 }
 
-function showVisualQuestion(imageType) {
-    const container = document.getElementById('visual-container');
-    container.style.display = 'block';
+function answerQuiz(selected, correct, question) {
+    if (!gameState.round || gameState.round.ended) return;
 
-    // Create simple SVG faces
-    if (imageType === 'faces') {
-        container.innerHTML = `
-            <svg width="100%" height="200" viewBox="0 0 400 200">
-                <!-- Face 1 -->
-                <circle cx="70" cy="100" r="40" fill="#FFE4B5" stroke="#333" stroke-width="2"/>
-                <circle cx="60" cy="90" r="5" fill="#000"/>
-                <circle cx="80" cy="90" r="5" fill="#000"/>
-                <path d="M 55 110 Q 70 120 85 110" stroke="#000" stroke-width="2" fill="none"/>
-
-                <!-- Face 2 -->
-                <circle cx="170" cy="100" r="40" fill="#FFE4B5" stroke="#333" stroke-width="2"/>
-                <circle cx="160" cy="90" r="5" fill="#000"/>
-                <circle cx="180" cy="90" r="5" fill="#000"/>
-                <path d="M 155 110 Q 170 120 185 110" stroke="#000" stroke-width="2" fill="none"/>
-
-                <!-- Face 3 -->
-                <circle cx="270" cy="100" r="40" fill="#FFE4B5" stroke="#333" stroke-width="2"/>
-                <circle cx="260" cy="90" r="5" fill="#000"/>
-                <circle cx="280" cy="90" r="5" fill="#000"/>
-                <path d="M 255 110 Q 270 120 285 110" stroke="#000" stroke-width="2" fill="none"/>
-            </svg>
-        `;
-    }
-}
-
-function selectQuizAnswer(selected, correct, explanation) {
-    clearInterval(gameState.roundTimer);
-
-    const buttons = document.querySelectorAll('.quiz-option-btn');
-    buttons.forEach((btn, index) => {
+    document.querySelectorAll('.quiz-option-btn').forEach((btn, index) => {
         btn.disabled = true;
         if (index === correct) {
             btn.classList.add('correct');
-        } else if (index === selected && selected !== correct) {
+        } else if (index === selected) {
             btn.classList.add('incorrect');
         }
     });
 
-    // Show explanation
-    document.getElementById('quiz-explanation').textContent = explanation;
-    document.getElementById('quiz-explanation').style.display = 'block';
+    const success = selected === correct;
+    const prefix = selected === -1 ? '⏱ Tempo esgotado! ' : (success ? '✔ Certo! ' : '✘ Errado. ');
+    $('quiz-explanation').textContent = prefix + question.explanation;
+    $('quiz-explanation').style.display = 'block';
 
-    const success = (selected === correct);
-    const points = success ? 1 : 0;
+    sfx.play(success ? 'success' : 'fail');
 
-    gameState.roundResults.push({
-        round: gameState.currentRound,
-        type: 'quiz',
-        question: document.getElementById('quiz-question').textContent,
-        success: success,
-        points: points
+    endRound({
+        label: question.code ? 'Desafio de código' : 'Pergunta',
+        success,
+        points: success ? MAX_POINTS_PER_ROUND : 0,
+        delay: 3500
     });
-
-    gameState.score += points;
-    document.getElementById('current-score').textContent = `Pontuação: ${gameState.score.toFixed(1)}`;
-
-    setTimeout(() => {
-        document.getElementById('quiz-explanation').style.display = 'none';
-        nextRound();
-    }, 3000);
-}
-
-// ===================================
-// ROUND TIMER
-// ===================================
-
-function startRoundTimer(duration) {
-    clearInterval(gameState.roundTimer);
-
-    gameState.roundTimer = setInterval(() => {
-        gameState.timeRemaining--;
-
-        // Update the appropriate timer element based on current question type
-        const timerElement = (gameState.currentQuestionType === QUESTION_TYPES.EMOTION_CAMERA)
-                             ? 'timer'
-                             : 'quiz-timer';
-
-        const timerEl = document.getElementById(timerElement);
-        if (timerEl) {
-            timerEl.textContent = `Tempo: ${gameState.timeRemaining}s`;
-        }
-
-        const progress = ((duration - gameState.timeRemaining) / duration) * 100;
-        document.getElementById('progress').style.width = `${progress}%`;
-
-        if (gameState.timeRemaining <= 0) {
-            roundTimeout();
-        }
-    }, 1000);
-}
-
-// ===================================
-// ROUND COMPLETION
-// ===================================
-
-function roundSuccess(identifier, timeLeft, type) {
-    clearInterval(gameState.detectionInterval);
-    clearInterval(gameState.roundTimer);
-
-    const points = Math.min(1, timeLeft / EMOTION_ROUND_DURATION);
-    gameState.score += points;
-
-    gameState.roundResults.push({
-        round: gameState.currentRound,
-        type: type,
-        identifier: identifier,
-        success: true,
-        timeLeft: timeLeft,
-        points: points
-    });
-
-    document.getElementById('current-score').textContent = `Pontuação: ${gameState.score.toFixed(1)}`;
-
-    const targetEl = document.getElementById('target-emotion');
-    if (targetEl) {
-        targetEl.style.backgroundColor = 'var(--ufp-green-primary)';
-    }
-
-    setTimeout(() => {
-        if (targetEl) {
-            targetEl.style.backgroundColor = '';
-        }
-        nextRound();
-    }, 1500);
-}
-
-function roundTimeout() {
-    clearInterval(gameState.detectionInterval);
-    clearInterval(gameState.roundTimer);
-
-    gameState.roundResults.push({
-        round: gameState.currentRound,
-        type: gameState.currentQuestionType,
-        success: false,
-        timeLeft: 0,
-        points: 0
-    });
-
-    const targetEl = document.getElementById('target-emotion');
-    if (targetEl) {
-        targetEl.style.backgroundColor = '#f44336';
-    }
-
-    setTimeout(() => {
-        if (targetEl) {
-            targetEl.style.backgroundColor = '';
-        }
-        nextRound();
-    }, 1500);
 }
 
 // ===================================
@@ -979,128 +1328,212 @@ function roundTimeout() {
 
 function endGame() {
     gameState.isPlaying = false;
-    clearInterval(gameState.detectionInterval);
+    gameState.round = null;
+    stopDetectionLoop();
     clearInterval(gameState.roundTimer);
-
-    // Calculate final score on 0-5 scale as integer
-    const finalScore = Math.round((gameState.score / gameState.totalRounds) * 5);
+    clearRoundTimers();
 
     showScreen('results-screen');
 
-    document.getElementById('student-name').textContent =
-        `${gameState.student.firstName} ${gameState.student.lastName}`;
-    document.getElementById('student-school').textContent = gameState.student.school;
-    document.getElementById('final-score').textContent = finalScore;
+    const fullName = `${gameState.student.firstName} ${gameState.student.lastName}`.trim();
+    $('student-name').textContent = fullName;
+    $('student-school').textContent = gameState.student.school;
+    $('final-score').textContent = gameState.score;
+    $('score-max').textContent = `/ ${MAX_POINTS}`;
+    $('score-message').textContent = getScoreMessage(gameState.score / MAX_POINTS);
 
-    const scoreMessage = getScoreMessage(finalScore);
-    document.getElementById('score-message').textContent = scoreMessage;
-
-    // Display round results
-    const roundResultsDiv = document.getElementById('round-results');
+    const roundResultsDiv = $('round-results');
     roundResultsDiv.innerHTML = '';
-
     gameState.roundResults.forEach(result => {
-        const resultItem = document.createElement('div');
-        resultItem.className = `round-result ${result.success ? 'success' : 'failure'}`;
-        resultItem.innerHTML = `
-            <span>Ronda ${result.round}: ${result.type === 'quiz' ? 'Quiz' : EMOTION_TRANSLATIONS[result.identifier] || 'Desafio'}</span>
-            <span>${result.success ? '✓' : '✗'} ${result.points.toFixed(2)} pts</span>
-        `;
-        roundResultsDiv.appendChild(resultItem);
+        const item = document.createElement('div');
+        item.className = `round-result ${result.success ? 'success' : 'failure'}`;
+        const label = document.createElement('span');
+        label.textContent = `Ronda ${result.round}: ${result.label}`;
+        const points = document.createElement('span');
+        points.textContent = `${result.success ? '✓' : '✗'} ${result.points} pts`;
+        item.append(label, points);
+        roundResultsDiv.appendChild(item);
     });
 
-    // Save to backend
-    saveResultToBackend(finalScore);
+    showRankingEntry();
 
-    // In normal mode, stop video stream
-    // In kiosk mode, keep the camera running for next game
-    if (typeof APP_CONFIG === 'undefined' || APP_CONFIG.kioskMode !== true) {
-        const video = document.getElementById('video');
-        const stream = video.srcObject;
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
+    // Backend CSV keeps the original 0-5 scale
+    saveResultToBackend(Math.round((gameState.score / MAX_POINTS) * 5));
+
+    // In normal mode, stop the camera; in kiosk mode keep it running for the next game
+    if (!isKioskMode()) {
+        const stream = $('video').srcObject;
+        if (stream) stream.getTracks().forEach(track => track.stop());
     }
 }
 
-function getScoreMessage(score) {
-    if (score === 5) return 'Excelente! És um mestre das emoções e da IA!';
-    if (score === 4) return 'Muito bom! Tens grande potencial para Engenharia Informática!';
-    if (score === 3) return 'Bom trabalho! Continua a explorar o mundo da IA!';
-    if (score === 2) return 'Nada mal! Com prática vais dominar estas tecnologias!';
-    if (score === 1) return 'Continua a praticar! A IA é fascinante!';
+function getScoreMessage(ratio) {
+    if (ratio >= 0.9) return 'Excelente! És um mestre das emoções e da IA!';
+    if (ratio >= 0.7) return 'Muito bom! Tens grande potencial para Engenharia Informática!';
+    if (ratio >= 0.5) return 'Bom trabalho! Continua a explorar o mundo da IA!';
+    if (ratio >= 0.3) return 'Nada mal! Com prática vais dominar estas tecnologias!';
     return 'Tenta novamente! A prática leva à perfeição!';
 }
+
+// ===================================
+// RANKING DO DIA (opt-in, initials only, stored on this computer)
+// ===================================
+
+const RANKING_VISIBLE = 10;
+const RANKING_STORED = 100;
+
+function rankingKey() {
+    // Local date as YYYY-MM-DD, so the ranking resets every day
+    return `desafio-ranking-${new Date().toLocaleDateString('sv-SE')}`;
+}
+
+function loadRanking() {
+    try {
+        const list = JSON.parse(localStorage.getItem(rankingKey()) || '[]');
+        return Array.isArray(list) ? list : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function addRankingEntry(initials, points) {
+    const list = loadRanking();
+    const entry = { initials, points, at: Date.now() };
+    list.push(entry);
+    list.sort((a, b) => b.points - a.points || a.at - b.at);
+    try {
+        localStorage.setItem(rankingKey(), JSON.stringify(list.slice(0, RANKING_STORED)));
+    } catch (e) {
+        console.warn('Could not save ranking:', e);
+    }
+    return { entry, position: list.indexOf(entry) + 1 };
+}
+
+function renderRankings(highlightAt = null) {
+    const top = loadRanking().slice(0, RANKING_VISIBLE);
+    const medals = ['🥇', '🥈', '🥉'];
+
+    document.querySelectorAll('.ranking-list').forEach(list => {
+        list.innerHTML = '';
+        if (top.length === 0) {
+            const empty = document.createElement('li');
+            empty.className = 'ranking-empty';
+            empty.textContent = 'Ainda ninguém. Sê o primeiro!';
+            list.appendChild(empty);
+            return;
+        }
+        top.forEach((entry, i) => {
+            const li = document.createElement('li');
+            if (entry.at === highlightAt) li.classList.add('me');
+            const pos = document.createElement('span');
+            pos.className = 'ranking-pos';
+            pos.textContent = medals[i] || `${i + 1}.`;
+            const name = document.createElement('span');
+            name.className = 'ranking-initials';
+            name.textContent = entry.initials;
+            const pts = document.createElement('span');
+            pts.className = 'ranking-points';
+            pts.textContent = `${entry.points} pts`;
+            li.append(pos, name, pts);
+            list.appendChild(li);
+        });
+    });
+}
+
+function sanitizeInitials(value) {
+    return value.toUpperCase().replace(/[^A-ZÀ-ÖØ-Ý]/g, '').slice(0, 3);
+}
+
+function showRankingEntry() {
+    gameState.rankingSaved = false;
+    $('ranking-entry').style.display = 'block';
+    $('ranking-result').textContent = '';
+    $('initials-input').value = '';
+    renderRankings();
+    setTimeout(() => $('initials-input').focus(), 300);
+}
+
+function saveInitials() {
+    if (gameState.rankingSaved) return;
+    const initials = sanitizeInitials($('initials-input').value);
+    if (!initials) {
+        $('initials-input').focus();
+        $('initials-input').classList.add('shake');
+        setTimeout(() => $('initials-input').classList.remove('shake'), 400);
+        return;
+    }
+    gameState.rankingSaved = true;
+    const { entry, position } = addRankingEntry(initials, gameState.score);
+    $('ranking-entry').style.display = 'none';
+    $('ranking-result').textContent = position <= RANKING_VISIBLE
+        ? `🎉 ${initials}, estás em ${position}.º lugar hoje!`
+        : `${initials}, ficaste em ${position}.º lugar hoje. Tenta outra vez para entrar no top ${RANKING_VISIBLE}!`;
+    renderRankings(entry.at);
+}
+
+$('initials-input').addEventListener('input', (e) => {
+    e.target.value = sanitizeInitials(e.target.value);
+});
+$('initials-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveInitials();
+});
+$('save-initials-btn').addEventListener('click', saveInitials);
+$('skip-initials-btn').addEventListener('click', () => {
+    $('ranking-entry').style.display = 'none';
+});
 
 // ===================================
 // STORAGE - Backend API Communication
 // ===================================
 
+function setSaveNotice(text, color) {
+    const notice = $('save-notice');
+    notice.textContent = text;
+    notice.style.color = color;
+}
+
 async function saveResultToBackend(finalScore) {
-    const timestamp = new Date().toISOString();
+    // The Electron build has no server; results are exported from the menu instead
+    if (window.electronAPI) return;
 
     const data = {
         firstName: gameState.student.firstName,
-        lastName: gameState.student.lastName,
+        lastName: gameState.student.lastName || '-',
         school: gameState.student.school,
         score: finalScore,
-        timestamp: timestamp
+        timestamp: new Date().toISOString()
     };
 
     try {
         const response = await fetch('http://localhost:3000/api/save-result', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-
         const result = await response.json();
 
         if (result.success) {
-            // Show success message on screen
-            const saveNotice = document.querySelector('.save-notice');
-            if (saveNotice) {
-                saveNotice.textContent = '✓ Resultados guardados com sucesso!';
-                saveNotice.style.color = 'var(--ufp-green-primary)';
-            }
+            setSaveNotice('✓ Resultados guardados com sucesso!', 'var(--success)');
         } else {
             console.error('Error saving result:', result.message);
-            const saveNotice = document.querySelector('.save-notice');
-            if (saveNotice) {
-                saveNotice.textContent = '⚠ Erro ao guardar resultados. Verifica se o servidor está a correr.';
-                saveNotice.style.color = '#f44336';
-            }
+            setSaveNotice('⚠ Erro ao guardar resultados. Verifica se o servidor está a correr.', 'var(--danger)');
         }
-
     } catch (error) {
         console.error('Error connecting to backend:', error);
-        const saveNotice = document.querySelector('.save-notice');
-        if (saveNotice) {
-            saveNotice.textContent = '⚠ Não foi possível conectar ao servidor. Verifica se está a correr na porta 3000.';
-            saveNotice.style.color = '#f44336';
-        }
+        setSaveNotice('⚠ Não foi possível conectar ao servidor. Verifica se está a correr na porta 3000.', 'var(--danger)');
     }
 }
 
 async function exportCSV() {
     try {
-        // Check if running in Electron
         if (window.electronAPI) {
-            // Electron desktop app
-            const csvContent = generateCSVContent();
-            const result = await window.electronAPI.exportCSV(csvContent);
-
+            const result = await window.electronAPI.exportCSV(generateCSVContent());
             if (result.success) {
-                const saveNotice = document.getElementById('save-notice');
-                saveNotice.textContent = `Resultados guardados em: ${result.filePath}`;
-                saveNotice.style.color = '#4CAF50';
+                setSaveNotice(`Resultados guardados em: ${result.filePath}`, 'var(--success)');
             } else if (!result.cancelled) {
                 alert('Erro ao guardar o ficheiro: ' + result.error);
             }
         } else {
-            // Web browser - download via server
             window.open('http://localhost:3000/api/download-results', '_blank');
         }
     } catch (error) {
@@ -1109,60 +1542,42 @@ async function exportCSV() {
     }
 }
 
-// Helper function to generate CSV content
 function generateCSVContent() {
-    let csv = 'Primeiro Nome,Último Nome,Escola,Ronda,Tipo,Resultado,Emocão/Pergunta,Data\n';
+    const escape = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    let csv = 'Primeiro Nome,Último Nome,Escola,Ronda,Tipo,Desafio,Sucesso,Pontos,Data\n';
 
     gameState.roundResults.forEach(result => {
-        csv += `${gameState.student.firstName},${gameState.student.lastName},${gameState.student.school},${result.round},${result.type},${result.success},${result.emotion},${result.timestamp}\n`;
+        csv += [
+            gameState.student.firstName,
+            gameState.student.lastName,
+            gameState.student.school,
+            result.round,
+            result.type,
+            result.label,
+            result.success,
+            result.points,
+            result.timestamp
+        ].map(escape).join(',') + '\n';
     });
 
-    // Add total score
-    csv += `\nTotal Score: ${gameState.score}/${gameState.totalRounds}\n`;
-
+    csv += `\nPontuação total: ${gameState.score}/${MAX_POINTS}\n`;
     return csv;
+}
+
+if (window.electronAPI && window.electronAPI.onMenuExportCSV) {
+    window.electronAPI.onMenuExportCSV(() => exportCSV());
 }
 
 // ===================================
 // PLAY AGAIN
 // ===================================
 
-document.getElementById('play-again-btn').addEventListener('click', async () => {
-    // Check if kiosk mode is enabled
-    if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.kioskMode === true) {
-        // In kiosk mode, return to start screen
-        gameState.currentRound = 0;
-        gameState.score = 0;
-        gameState.roundResults = [];
-        gameState.usedEmotions = [];
-        gameState.lastEmotion = null;
-
+$('play-again-btn').addEventListener('click', () => {
+    renderRankings();
+    if (isKioskMode()) {
         showScreen('kiosk-start-screen');
     } else {
-        // In normal mode, go back to registration screen
-        document.getElementById('registration-form').reset();
+        $('registration-form').reset();
         showScreen('registration-screen');
     }
 });
-
-// ===================================
-// UTILITY FUNCTIONS
-// ===================================
-
-function showGameElement(element) {
-    if (element === 'camera') {
-        document.getElementById('video-container').style.display = 'block';
-        document.getElementById('challenge-box').style.display = 'block';
-    } else if (element === 'quiz') {
-        document.getElementById('quiz-container').style.display = 'block';
-    }
-}
-
-function hideGameElement(element) {
-    if (element === 'camera') {
-        document.getElementById('video-container').style.display = 'none';
-        document.getElementById('challenge-box').style.display = 'none';
-    } else if (element === 'quiz') {
-        document.getElementById('quiz-container').style.display = 'none';
-    }
-}

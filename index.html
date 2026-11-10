@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Desafio das Emoções - UFP</title>
+    <title>Desafio das Emoções 2.0 - UFP</title>
     <link rel="stylesheet" href="style.css">
     <script defer src="lib/face-api.min.js"></script>
 </head>
@@ -11,8 +11,8 @@
     <div class="container">
         <!-- Registration Screen -->
         <div id="registration-screen" class="screen active">
-            <h1>Desafio das Emoções + IA</h1>
-            <p>Bem-vindo! Descobre o mundo da Inteligência Artificial e Visão Computacional!</p>
+            <h1>Desafio das Emoções 2.0</h1>
+            <p>Bem-vindo! Consegues enganar a IA... ou será ela a apanhar-te?</p>
             <form id="registration-form">
                 <div class="form-group">
                     <label for="firstName">Primeiro Nome:</label>
@@ -28,6 +28,10 @@
                 </div>
                 <button type="submit" class="btn btn-primary">Começar Desafio</button>
             </form>
+            <div class="ranking-board">
+                <h3>🏆 Ranking de hoje</h3>
+                <ol class="ranking-list"></ol>
+            </div>
             <div class="export-section">
                 <button id="export-csv-btn" class="btn btn-secondary" onclick="exportCSV()">Exportar Dados CSV</button>
             </div>
@@ -35,10 +39,19 @@
 
         <!-- Kiosk Start Screen -->
         <div id="kiosk-start-screen" class="screen">
-            <h1>Desafio das Emoções + IA</h1>
-            <p>Bem-vindo! Descobre o mundo da Inteligência Artificial e Visão Computacional!</p>
-            <p class="kiosk-instructions">Prepara-te para responder a perguntas e mostrar as tuas emoções!</p>
+            <h1>Desafio das Emoções 2.0</h1>
+            <p>Consegues enganar a IA... ou será ela a apanhar-te?</p>
+            <ul class="kiosk-modes">
+                <li><span>😄</span>Mostra emoções</li>
+                <li><span>⚡</span>Sequência relâmpago</li>
+                <li><span>🚨</span>Detetor de mentiras</li>
+                <li><span>🎭</span>Engana a IA</li>
+            </ul>
             <button id="kiosk-start-btn" class="btn btn-primary btn-large">Começar Desafio</button>
+            <div class="ranking-board">
+                <h3>🏆 Ranking de hoje</h3>
+                <ol class="ranking-list"></ol>
+            </div>
         </div>
 
         <!-- Loading Screen -->
@@ -52,34 +65,52 @@
         <!-- Game Screen -->
         <div id="game-screen" class="screen">
             <div class="game-header">
-                <h2>Desafio das Emoções + IA</h2>
                 <div class="game-info">
-                    <span id="current-round">Ronda: 1/22</span>
-                    <span id="current-score">Pontuação: 0</span>
+                    <span id="current-round">Ronda: 1/10</span>
+                    <span id="round-type-label" class="round-type-label"></span>
+                    <span id="current-score">Pontos: 0</span>
                 </div>
             </div>
 
-            <!-- Camera Container (for emotion detection) -->
-            <div id="video-container" class="video-container">
-                <video id="video" autoplay muted></video>
-                <canvas id="overlay"></canvas>
-            </div>
+            <!-- Camera stage (all camera-based rounds) -->
+            <div id="camera-stage" class="camera-stage">
+                <div id="video-container" class="video-container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="overlay"></canvas>
+                    <div id="round-feedback" class="round-feedback"></div>
+                </div>
 
-            <!-- Challenge Box (for emotions) -->
-            <div id="challenge-box" class="challenge-box">
-                <h3 id="challenge-title">Mostra esta emoção:</h3>
-                <div id="target-emotion" class="target-emotion">Feliz</div>
-                <div id="detected-emotion" class="detected-emotion">A detetar...</div>
-                <div id="timer" class="timer">Tempo: 15s</div>
-                <div id="educational-note" class="educational-note">A IA está a analisar 68 pontos no teu rosto!</div>
+                <div id="challenge-box" class="challenge-box">
+                    <h3 id="challenge-title">Mostra esta emoção:</h3>
+                    <div id="target-emotion" class="target-emotion">Feliz</div>
+                    <div id="challenge-rule" class="challenge-rule"></div>
+
+                    <!-- Sequência relâmpago -->
+                    <div id="sequence-track" class="sequence-track"></div>
+
+                    <!-- Detetor de mentiras -->
+                    <div id="lie-box" class="lie-box">
+                        <div id="lie-dots" class="lie-dots"></div>
+                        <div id="lie-question" class="lie-question"></div>
+                        <div class="lie-meter">
+                            <span class="lie-meter-label">Nervosismo</span>
+                            <span class="lie-meter-track"><span id="lie-meter-fill" class="lie-meter-fill"></span></span>
+                            <span id="lie-meter-value" class="lie-meter-value">0%</span>
+                        </div>
+                        <div id="lie-verdict" class="lie-verdict"></div>
+                    </div>
+                    <div id="lie-reveal" class="lie-reveal"></div>
+
+                    <div id="detected-emotion" class="detected-emotion">A detetar...</div>
+                    <div id="emotion-bars" class="emotion-bars"></div>
+                    <div id="timer" class="timer">20s</div>
+                    <div id="educational-note" class="educational-note"></div>
+                </div>
             </div>
 
             <!-- Quiz Container (for questions) -->
             <div id="quiz-container" class="quiz-container" style="display: none;">
                 <h3 id="quiz-question" class="quiz-question">Pergunta aparece aqui</h3>
-
-                <!-- Visual Container (for images) -->
-                <div id="visual-container" class="visual-container" style="display: none;"></div>
 
                 <!-- Code Block (for code questions) -->
                 <div id="code-block" class="code-block" style="display: none;">
@@ -93,7 +124,7 @@
                 <div id="quiz-explanation" class="quiz-explanation" style="display: none;"></div>
 
                 <!-- Timer and Educational Note -->
-                <div id="quiz-timer" class="timer">Tempo: 30s</div>
+                <div id="quiz-timer" class="timer">20s</div>
                 <div id="quiz-educational-note" class="educational-note"></div>
             </div>
 
@@ -112,16 +143,35 @@
                 <div class="final-score">
                     <span class="score-label">Pontuação Final:</span>
                     <span id="final-score" class="score-value">0</span>
-                    <span class="score-max">/ 5</span>
+                    <span id="score-max" class="score-max">/ 1000</span>
                 </div>
                 <div id="score-message" class="score-message"></div>
             </div>
+
+            <!-- Ranking do dia (opcional: só iniciais) -->
+            <div id="ranking-entry" class="ranking-entry">
+                <p class="ranking-entry-title">🏆 Queres entrar no ranking de hoje?</p>
+                <p class="ranking-entry-hint">É opcional. Só guardamos as tuas iniciais (até 3 letras) e os pontos.</p>
+                <input type="text" id="initials-input" class="initials-input" maxlength="3"
+                       autocomplete="off" spellcheck="false" placeholder="ABC" aria-label="Iniciais">
+                <div class="ranking-entry-actions">
+                    <button id="save-initials-btn" class="btn btn-secondary">Entrar no ranking</button>
+                    <button id="skip-initials-btn" class="btn btn-ghost">Não, obrigado</button>
+                </div>
+            </div>
+            <p id="ranking-result" class="ranking-result"></p>
+
+            <div class="ranking-board">
+                <h3>🏆 Ranking de hoje</h3>
+                <ol class="ranking-list"></ol>
+            </div>
+
             <div class="results-details">
                 <h3>Resultados das Rondas:</h3>
                 <div id="round-results"></div>
             </div>
             <button id="play-again-btn" class="btn btn-primary">Jogar Novamente</button>
-            <p class="save-notice">Os teus resultados foram guardados!</p>
+            <p class="save-notice" id="save-notice"></p>
             <p class="ufp-promo">🎓 Gostaste? Explora Engenharia Informática na UFP!</p>
         </div>
     </div>
