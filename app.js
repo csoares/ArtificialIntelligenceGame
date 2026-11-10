@@ -121,7 +121,7 @@ const SEQUENCE_LENGTH = 5;
 const SEQUENCE_HOLD_MS = 600;         // hold time for each emotion in the sequence
 const LIE_QUESTIONS_PER_ROUND = 3;
 const LIE_QUESTION_MS = 10000;        // max time each question stays on screen while the AI watches
-const LIE_CAUGHT_HOLD_MS = 4000;      // after "MENTIRA DETETADA", stay on it to enjoy the reaction
+const LIE_CAUGHT_HOLD_MS = 4000;      // after "APANHADO!", stay on it to enjoy the reaction
 const LIE_RESULT_MS = 2200;           // "Cara de poker" feedback before the next question
 const LIE_INTRO_AUTOSTART_MS = 45000; // start anyway if nobody presses "Estou pronto"
 const LIE_END_AUTOCONTINUE_MS = 7000;
@@ -308,7 +308,7 @@ const QUIZ_QUESTIONS = [
         question: 'Completa o código do "Detetor de Mentiras":',
         snippet: `se confianca_neutro < 0.35:
     resultado = ?`,
-        options: ['"Cara de poker!"', '"MENTIRA DETETADA!"', '"Estás feliz"', '"Sem cara"'],
+        options: ['"Cara de poker!"', '"APANHADO!"', '"Estás feliz"', '"Sem cara"'],
         correct: 1,
         explanation: 'Se a cara deixa de estar neutra, o "detetor" dispara. Repara: o código mede a cara, não a verdade!',
         educationalNote: 'Uma condição "se" (if) é das primeiras coisas que aprendes a programar.'
@@ -384,29 +384,34 @@ const TRICK_CHALLENGES = [
 
 // "Detetor de Mentiras": questions meant to get a reaction from 15-17 year-olds (with friends
 // watching), but fine for a school event. The player just reads them and tries not to react.
+// Statements the AI "accuses" the player of. Nobody answers: the player just reads in silence and
+// tries not to react. Written to tease 15-17 year-olds, but they must stay fine for a school event.
 const LIE_QUESTIONS = [
-    'Já fingiste estar doente para faltar a um teste?',
-    'Já copiaste num teste?',
-    'Já disseste "estou quase a chegar" quando ainda estavas na cama?',
-    'Já mandaste uma mensagem à pessoa errada… sobre essa mesma pessoa?',
-    'Já viste o Instagram de alguém até às fotos de 2019?',
-    'Já deste like sem querer numa foto antiga de alguém?',
-    'Já tiveste uma crush por alguém da tua turma?',
-    'Gostas de alguém que está aqui agora?',
-    'Já usaste uma IA para fazer um trabalho e disseste que foste tu?',
-    'Já deixaste alguém no "visto" de propósito?',
-    'Já disseste "vou só ver um vídeo" e ficaste lá duas horas?',
-    'Já ficaste acordado até às 4h a ver vídeos?',
-    'Já fingiste que estavas a prestar atenção na aula?',
-    'Já culpaste outra pessoa por uma coisa que foste tu a fazer?',
-    'Já fingiste que gostaste de uma prenda?',
-    'Já disseste aos teus pais que estavas num sítio e estavas noutro?',
-    'Já choraste a ver um filme de animação?',
-    'Já ensaiaste uma conversa em frente ao espelho?',
-    'Já tiraste mais de 20 selfies para publicar só uma?',
-    'Já disseste "vi agora a tua mensagem" e era mentira?',
-    'Já fingiste estar ao telemóvel para evitar falar com alguém?',
-    'Já cantaste no duche como se estivesses num concerto?'
+    'A IA tem a certeza: já fingiste estar doente para faltar a um teste. 🤒',
+    'Os teus amigos contaram-nos que já copiaste num teste… 👀',
+    '"Estou quase a chegar"… disseste tu, ainda deitado na cama. 🛏️',
+    'Já mandaste uma mensagem sobre alguém… a essa mesma pessoa. 😬',
+    'Sabemos que já viste o Instagram de alguém até às fotos de 2019. 🕵️',
+    'Deste like sem querer numa foto antiga de alguém. E entraste em pânico. 😱',
+    'A IA detetou: tens uma crush por alguém da tua turma. 💘',
+    'Há alguém nesta sala de quem gostas. A IA já sabe quem é. 😏',
+    'Aquele trabalho que entregaste… foi uma IA que o escreveu. 🤖',
+    'Deixaste alguém no "visto" de propósito. Esta semana. 👁️',
+    '"Vou só ver um vídeo"… e ficaste lá duas horas. ⏰',
+    'Ontem às 3 da manhã ainda estavas a ver vídeos. 🌙',
+    'Na última aula fingiste que estavas a prestar atenção. 🥱',
+    'Já culpaste outra pessoa por uma coisa que foste tu a fazer. 🙊',
+    'Fingiste que adoraste uma prenda… e afinal odiaste. 🎁',
+    'Já disseste aos teus pais que estavas num sítio e estavas noutro. 📍',
+    'Choraste a ver um filme de animação. A IA viu tudo. 😭',
+    'Já ensaiaste uma conversa em frente ao espelho. Várias vezes. 🪞',
+    'Tiraste 30 selfies para publicar só uma. 🤳',
+    '"Vi agora a tua mensagem"… mentira, viste há três horas. 📱',
+    'Já fingiste estar numa chamada para não falar com alguém. 📞',
+    'Cantas no duche como se estivesses num concerto. 🎤',
+    'Tens uma foto no telemóvel que ninguém pode ver. Nunca. 🙈',
+    'Se a IA mostrasse agora o teu histórico de pesquisas… 🔍',
+    'Já te riste numa situação em que não te podias mesmo rir. 🤭'
 ];
 
 const LIE_REVEAL = 'Calma! A IA não detetou mentira nenhuma: só mediu se a tua cara saiu do neutro. ' +
@@ -1550,7 +1555,7 @@ function startGestureRound(gestureKeys) {
  * 2. During the 3-2-1 the AI measures the player's resting face (baseline). Each question then
  *    stays up to LIE_QUESTION_MS; after LIE_GRACE_MS of reading time, a weighted rise of any
  *    expression above the baseline (smoothed) beyond LIE_REACTION_THRESHOLD for
- *    LIE_REACTION_HOLD_MS -> "MENTIRA DETETADA", which stays on screen LIE_CAUGHT_HOLD_MS so
+ *    LIE_REACTION_HOLD_MS -> "APANHADO!", which stays on screen LIE_CAUGHT_HOLD_MS so
  *    everyone can enjoy the reaction.
  * 3. The end panel shows the score; the last lie round of the game also shows LIE_REVEAL.
  */
@@ -1650,8 +1655,8 @@ function startLieDetectorRound(reveal) {
         results.push('caught');
         markDot(index, 'caught');
         stage.classList.add('alarm');
-        setVerdict('🚨 MENTIRA DETETADA 🚨', 'caught');
-        $('lie-status').textContent = 'A tua cara denunciou-te…';
+        setVerdict('🚨 APANHADO! 🚨', 'caught');
+        $('lie-status').textContent = 'A tua cara confessou tudo…';
         sfx.play('alarm');
         later(() => sfx.play('alarm'), 1300);
         later(() => askQuestion(index + 1), LIE_CAUGHT_HOLD_MS);
@@ -1752,7 +1757,7 @@ function startLieDetectorRound(reveal) {
         const win = passed >= Math.ceil(total / 2);
 
         $('lie-score-title').textContent = win ? '😐 Cara de poker!' : '🚨 Apanhado!';
-        $('lie-score-detail').textContent = `${passed} de ${total} perguntas sem seres apanhado`;
+        $('lie-score-detail').textContent = `${passed} de ${total} frases sem reagir`;
         $('lie-reveal').hidden = !reveal;
         if (reveal) $('lie-reveal').textContent = LIE_REVEAL;
         showPanel('end');
