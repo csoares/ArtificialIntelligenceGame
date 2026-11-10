@@ -281,8 +281,8 @@ h1 {
 .kiosk-modes {
     list-style: none;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
     margin: 0 0 24px;
 }
 
@@ -1404,7 +1404,7 @@ h1 {
     }
 
     .kiosk-modes {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(3, 1fr);
     }
 
     .ranking-list,

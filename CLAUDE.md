@@ -48,12 +48,18 @@ There are no tests, no linter and no bundler. The frontend is plain browser JS l
   - The questions in `LIE_QUESTIONS` are written for 15–17 year-olds but must stay appropriate for a school event. The last lie-detector round in the plan (`reveal: true`) ends with `LIE_REVEAL`, which explains that the AI can't really detect lies (AI Act). That reveal is the educational point of the round, so keep it. "Engana a IA" rules work on trust: the AI only checks the target emotion.
 - Sound effects are synthesized with Web Audio (`sfx`), so there are no audio files. The AudioContext is unlocked on the start click.
 - Daily ranking: this is opt-in. Only initials (max 3 letters) and points are stored, in `localStorage` under a key per local date (`desafio-ranking-YYYY-MM-DD`). The ranking is per machine and resets each day.
+- Gesture rounds use the **MediaPipe Gesture Recognizer**. It is WebAssembly, so it doesn't clash with face-api's TensorFlow.js.
+  - The files are vendored in `models/mediapipe/` (see its `README.txt`; it holds only the SIMD wasm build) and are loaded with `loadGestureRecognizer()` during `initializeGame`. GPU is tried first, then CPU.
+  - If loading fails, `createGamePlan()` turns gesture rounds into emotion rounds, so the game never breaks.
+  - `startGestureLoop(onFrame)` shares the detection token with `startDetectionLoop`, so `stopDetectionLoop()` stops either one.
+  - `GESTURES` keys are MediaPipe category names. The exception is `Heart` (🫶 with two hands), which `isHeart()` detects from the 21 landmarks per hand.
+  - The first gesture round always includes 👍 and the second includes 🫶.
 - Handpose/TensorFlow (`lib/handpose.min.js`, `lib/tensorflow.min.js`) is in the repo but unused because it conflicts with face-api.js.
 
 **Kiosk mode** is controlled only by `APP_CONFIG.kioskMode` in `config.js`. When it's on, registration is skipped (the player becomes "Visitante"), the camera stays active, and "Jogar Novamente" goes straight back to the game. (The `config.kioskMode` field in `package.json` and the `APP_CONFIG` env var mentioned in `electron/README.md` aren't read by any code.)
 
 **Web vs. Electron branching**: the renderer checks `window.electronAPI`, which is exposed by `electron/preload.js` through `contextBridge`:
-- Model loading: the browser uses `./models`, while Electron uses the custom `app-resource://models` protocol. In `electron/main.js`, that protocol is registered as privileged *before* `app.ready` and maps to `process.resourcesPath` in production (models ship as `extraResources`) or to the repo root in dev.
+- Model loading: the browser uses `./models`, while Electron uses the custom `app-resource://models` protocol. In `electron/main.js`, that protocol is registered as privileged *before* `app.ready` and maps to `process.resourcesPath` in production (models ship as `extraResources`) or to the repo root in dev. The handler sets `Access-Control-Allow-Origin` and exact MIME types for `.mjs` and `.wasm`, because MediaPipe is loaded with `import()` and a `<script>` from a `file://` page. It also refuses paths that would escape the resources folder.
 - Results: in the browser, `saveResultToBackend()` POSTs to the hardcoded `http://localhost:3000/api/save-result`, which appends to `resultados_emocoes.csv` (gitignored). The score is converted to the old 0–5 scale so the CSV format stays the same. Export opens `/api/download-results`. In Electron there is no server, so the backend save is skipped. `exportCSV()` (also triggered from the menu with Ctrl+E) builds the CSV in the renderer and saves it with the `export-csv` IPC handler, which shows a native save dialog.
 
 **Backend (`server.js`)**: Express on port 3000. It serves the repo root statically and has three endpoints: `POST /api/save-result`, `GET /api/download-results` and `GET /api/results-count`.

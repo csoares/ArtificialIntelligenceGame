@@ -38,6 +38,7 @@ const ROUND_TYPES = {
     SEQUENCE: 'sequence',
     LIE: 'lie_detector',
     TRICK: 'trick',
+    GESTURE: 'gesture',
     QUIZ: 'quiz'
 };
 
@@ -46,6 +47,7 @@ const ROUND_TYPE_LABELS = {
     sequence: '⚡ Sequência relâmpago',
     lie_detector: '🚨 Detetor de mentiras',
     trick: '🎭 Engana a IA',
+    gesture: '✋ Gestos',
     quiz: '🧠 Pergunta'
 };
 
@@ -60,6 +62,11 @@ const ROUND_INTROS = {
         emoji: '⚡',
         title: 'Sequência relâmpago',
         text: '5 emoções seguidas, sem parar. És mais rápido do que a IA?'
+    },
+    gesture: {
+        emoji: '✋',
+        title: 'Gestos',
+        text: 'Faz os 3 gestos pedidos com as mãos. A IA segue 21 pontos em cada mão!'
     },
     trick: {
         emoji: '🎭',
@@ -76,15 +83,15 @@ const ROUND_INTROS = {
 // Order of rounds in one game (~5 minutes). Quiz questions are picked at random each game.
 const GAME_PLAN = [
     ROUND_TYPES.EMOTION,
-    ROUND_TYPES.EMOTION,
+    ROUND_TYPES.GESTURE,       // always includes 👍
     ROUND_TYPES.QUIZ,
     ROUND_TYPES.SEQUENCE,
     ROUND_TYPES.LIE,
     ROUND_TYPES.QUIZ,
+    ROUND_TYPES.GESTURE,       // always includes 🫶 (two-hand heart)
     ROUND_TYPES.TRICK,
-    ROUND_TYPES.EMOTION,
     ROUND_TYPES.QUIZ,          // last quiz is always a code question
-    ROUND_TYPES.LIE           // ends with the "reveal"
+    ROUND_TYPES.LIE            // ends with the "reveal"
 ];
 
 // Round durations (seconds)
@@ -92,6 +99,7 @@ const DURATION = {
     emotion: 30,
     trick: 30,
     sequence: 45,
+    gesture: 40,
     quiz: 30,
     code: 45
 };
@@ -118,6 +126,31 @@ const LIE_RESULT_MS = 2200;           // "Cara de poker" feedback before the nex
 const LIE_INTRO_AUTOSTART_MS = 45000; // start anyway if nobody presses "Estou pronto"
 const LIE_END_AUTOCONTINUE_MS = 7000;
 const LIE_REVEAL_AUTOCONTINUE_MS = 35000;
+
+// Gestures (MediaPipe Gesture Recognizer, runs offline from models/mediapipe)
+const GESTURES_PER_ROUND = 3;
+const GESTURE_HOLD_MS = 600;          // hold each gesture this long
+const GESTURE_MIN_SCORE = 0.6;        // recognizer confidence needed
+const GESTURE_INTERVAL_MS = 60;       // pause between recognitions
+
+// Keys are MediaPipe's category names, except 'Heart', which we detect from two-hand landmarks
+const GESTURES = {
+    Thumb_Up: { emoji: '👍', label: 'Fixe', hint: 'Polegar para cima' },
+    Thumb_Down: { emoji: '👎', label: 'Nada fixe', hint: 'Polegar para baixo' },
+    Victory: { emoji: '✌️', label: 'Paz', hint: 'Indicador e médio em V' },
+    Pointing_Up: { emoji: '☝️', label: 'Aponta para cima', hint: 'Só o indicador esticado, para cima' },
+    Closed_Fist: { emoji: '✊', label: 'Punho', hint: 'Mão fechada' },
+    Open_Palm: { emoji: '✋', label: 'Mão aberta', hint: 'Mão aberta, dedos esticados' },
+    ILoveYou: { emoji: '🤟', label: 'Adoro-te', hint: 'Polegar, indicador e mindinho esticados' },
+    Heart: { emoji: '🫶', label: 'Coração', hint: 'Junta as duas mãos em forma de coração' }
+};
+const SINGLE_HAND_GESTURES = Object.keys(GESTURES).filter(key => key !== 'Heart');
+
+// MediaPipe hand skeleton (21 landmarks)
+const HAND_CONNECTIONS = [
+    [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]
+];
 const NERVOUS_THRESHOLD = 0.65;       // "nervousness" (1 - neutral, smoothed) that triggers the alarm
 const NERVOUS_HOLD_MS = 500;          // how long it must stay above the threshold (ignores blinks/glitches)
 const NERVOUS_SMOOTHING = 0.35;       // exponential smoothing factor for the meter (0-1, higher = jumpier)
@@ -245,6 +278,14 @@ const QUIZ_QUESTIONS = [
         correct: 1,
         explanation: 'A IA corre aqui mesmo, no computador. Analisa cada imagem e esquece-a logo a seguir.',
         educationalNote: 'Correr IA "no dispositivo" é mais rápido e protege a privacidade.'
+    },
+    {
+        id: 'hands1',
+        question: 'Quantos pontos a IA usa para seguir cada mão nos gestos?',
+        options: ['5 (um por dedo)', '10', '21', '68'],
+        correct: 2,
+        explanation: 'São 21 pontos: o pulso e 4 articulações por dedo. Com eles, a IA percebe a posição de cada dedo!',
+        educationalNote: 'É assim que funcionam os filtros com as mãos e o controlo por gestos em óculos de realidade virtual.'
     },
     {
         id: 'code1',
@@ -419,7 +460,18 @@ function createGamePlan() {
     const quizCount = GAME_PLAN.filter(t => t === ROUND_TYPES.QUIZ).length;
     let quizSeen = 0;
 
+    // Gesture rounds: the first always has 👍, the second the two-hand 🫶; no gesture repeats
+    const singles = shuffleArray(SINGLE_HAND_GESTURES.filter(g => g !== 'Thumb_Up'));
+    const mustHave = ['Thumb_Up', 'Heart'];
+    let gestureRound = 0;
+
     return GAME_PLAN.map(type => {
+        if (type === ROUND_TYPES.GESTURE) {
+            if (!gestureEngine.recognizer) return { type: ROUND_TYPES.EMOTION }; // no hand tracking: fall back
+            const first = mustHave[gestureRound++] || singles.pop();
+            const gestures = [first, ...singles.splice(0, GESTURES_PER_ROUND - 1)];
+            return { type, gestures: shuffleArray(gestures) };
+        }
         if (type === ROUND_TYPES.QUIZ) {
             quizSeen++;
             const question = quizSeen === quizCount ? codeQuestions.pop() : generalQuestions.pop();
@@ -573,17 +625,22 @@ function cameraIsLive() {
 
 async function initializeGame() {
     try {
+        // In Electron, models are served through the custom app-resource:// protocol
+        const MODEL_URL = window.electronAPI ? 'app-resource://models' : './models';
+
         if (!modelsLoaded()) {
             updateLoadingStatus('A carregar modelos de deteção facial...');
-
-            // In Electron, models are served through the custom app-resource:// protocol
-            const MODEL_URL = window.electronAPI ? 'app-resource://models' : './models';
             console.log('Loading face detection models from:', MODEL_URL);
 
             await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
             console.log('All face-api models loaded successfully!');
+        }
+
+        if (!gestureEngine.recognizer && !gestureEngine.failed) {
+            updateLoadingStatus('A carregar deteção de gestos...');
+            await loadGestureRecognizer(MODEL_URL);
         }
 
         const video = $('video');
@@ -689,6 +746,9 @@ function startRoundOfType(roundConfig) {
         case ROUND_TYPES.SEQUENCE:
             startSequenceRound();
             break;
+        case ROUND_TYPES.GESTURE:
+            startGestureRound(roundConfig.gestures);
+            break;
         case ROUND_TYPES.LIE:
             startLieDetectorRound(roundConfig.reveal);
             break;
@@ -751,6 +811,7 @@ function resetChallengeBox() {
     $('code-block').style.display = 'none';
     $('quiz-explanation').style.display = 'none';
     $('target-emotion').style.display = '';
+    $('emotion-bars').style.display = '';
     $('target-emotion').classList.remove('is-win', 'is-lose');
     $('round-feedback').className = 'round-feedback';
     $('round-feedback').textContent = '';
@@ -1212,6 +1273,227 @@ function startSequenceRound() {
             points: 15 * index,
             outcome: index > 0 ? 'win' : 'lose',
             message: `⏱ ${index}/${SEQUENCE_LENGTH} emoções`
+        });
+    });
+}
+
+// ===================================
+// GESTURE ENGINE (MediaPipe Gesture Recognizer)
+// ===================================
+
+const gestureEngine = { recognizer: null, failed: false, lastTimestamp: 0 };
+
+// Loads MediaPipe from models/mediapipe. Never throws: on failure gesture rounds become emotion rounds.
+async function loadGestureRecognizer(modelUrl) {
+    const base = `${modelUrl}/mediapipe`;
+    try {
+        const vision = await import(`${base}/vision_bundle.mjs`);
+        const fileset = await vision.FilesetResolver.forVisionTasks(base);
+        const options = delegate => ({
+            baseOptions: { modelAssetPath: `${base}/gesture_recognizer.task`, delegate },
+            runningMode: 'VIDEO',
+            numHands: 2
+        });
+        try {
+            gestureEngine.recognizer = await vision.GestureRecognizer.createFromOptions(fileset, options('GPU'));
+        } catch (gpuError) {
+            console.warn('Gesture recognizer: GPU unavailable, using CPU', gpuError);
+            gestureEngine.recognizer = await vision.GestureRecognizer.createFromOptions(fileset, options('CPU'));
+        }
+        console.log('Gesture recognizer loaded');
+    } catch (error) {
+        console.error('Gesture recognizer unavailable, gesture rounds disabled:', error);
+        gestureEngine.failed = true;
+        gestureEngine.recognizer = null;
+    }
+}
+
+// [{ gesture, score, landmarks: [{x, y}] in video pixels }]
+function parseHands(result, width, height) {
+    if (!result || !result.landmarks) return [];
+    return result.landmarks.map((landmarks, i) => {
+        const top = (result.gestures && result.gestures[i] && result.gestures[i][0]) || null;
+        return {
+            gesture: top ? top.categoryName : 'None',
+            score: top ? top.score : 0,
+            landmarks: landmarks.map(p => ({ x: p.x * width, y: p.y * height }))
+        };
+    });
+}
+
+// Two-hand heart 🫶: index fingertips touch at the top, thumb tips touch at the bottom,
+// with a gap (the "hole" of the heart) between them.
+function isHeart(hands) {
+    if (hands.length < 2) return false;
+    const [a, b] = hands.map(hand => hand.landmarks);
+    const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+    const handSize = (dist(a[0], a[9]) + dist(b[0], b[9])) / 2;
+    if (!handSize) return false;
+
+    const indexGap = dist(a[8], b[8]);
+    const thumbGap = dist(a[4], b[4]);
+    const indexY = (a[8].y + b[8].y) / 2;
+    const thumbY = (a[4].y + b[4].y) / 2;
+
+    return indexGap < 0.6 * handSize &&
+        thumbGap < 0.6 * handSize &&
+        thumbY - indexY > 0.35 * handSize; // thumbs below the index fingers (y grows downwards)
+}
+
+function handsShowGesture(hands, target) {
+    if (target === 'Heart') return isHeart(hands);
+    return hands.some(hand => hand.gesture === target && hand.score >= GESTURE_MIN_SCORE);
+}
+
+function describeHands(hands) {
+    if (hands.length === 0) return '🖐️ Mostra as mãos à câmara...';
+    if (isHeart(hands)) return `A IA vê: ${GESTURES.Heart.emoji} ${GESTURES.Heart.label}`;
+    const seen = hands.map(hand => {
+        const known = GESTURES[hand.gesture];
+        return known && hand.score >= GESTURE_MIN_SCORE
+            ? `${known.emoji} ${known.label} (${Math.round(hand.score * 100)}%)`
+            : '🖐️ ?';
+    });
+    return `A IA vê: ${seen.join(' + ')}`;
+}
+
+/**
+ * Same contract as startDetectionLoop, but for hands: calls onFrame(hands) on every tick and
+ * draws the hand skeletons. Shares the detection token, so stopDetectionLoop() stops it too.
+ */
+function startGestureLoop(onFrame) {
+    stopDetectionLoop();
+    const token = gameState.detectionToken;
+    const video = $('video');
+    const canvas = $('overlay');
+
+    const tick = () => {
+        if (token !== gameState.detectionToken || !gameState.isPlaying) return;
+
+        if (video.readyState < 2 || video.videoWidth === 0) {
+            gameState.detectionTimeout = setTimeout(tick, 100);
+            return;
+        }
+
+        let result = null;
+        try {
+            // VIDEO mode needs strictly increasing timestamps
+            const timestamp = Math.max(performance.now(), gestureEngine.lastTimestamp + 1);
+            gestureEngine.lastTimestamp = timestamp;
+            result = gestureEngine.recognizer.recognizeForVideo(video, timestamp);
+        } catch (error) {
+            console.error('Gesture recognition error:', error);
+        }
+
+        const hands = parseHands(result, video.videoWidth, video.videoHeight);
+        const feedback = onFrame(hands) || {};
+        if (token !== gameState.detectionToken) return; // onFrame ended the round
+
+        if (canvas.width !== video.videoWidth) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hands.forEach(hand => drawHand(ctx, hand.landmarks, feedback.state));
+
+        $('detected-emotion').textContent = describeHands(hands);
+        gameState.detectionTimeout = setTimeout(tick, GESTURE_INTERVAL_MS);
+    };
+
+    tick();
+}
+
+function drawHand(ctx, points, state) {
+    const color = state === 'match' ? '#34c759' : '#f4c430';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.85;
+    HAND_CONNECTIONS.forEach(([from, to]) => {
+        ctx.beginPath();
+        ctx.moveTo(points[from].x, points[from].y);
+        ctx.lineTo(points[to].x, points[to].y);
+        ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffffff';
+    points.forEach(point => {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// ===================================
+// ROUND: GESTOS
+// ===================================
+
+function startGestureRound(gestureKeys) {
+    showCameraStage();
+
+    $('challenge-title').textContent = 'Faz este gesto com as mãos:';
+    $('educational-note').textContent = 'A IA encontra 21 pontos em cada mão e reconhece o gesto pela posição dos dedos.';
+    $('emotion-bars').style.display = 'none';
+
+    const track = $('sequence-track');
+    track.style.display = 'flex';
+    gestureKeys.forEach(key => {
+        const chip = document.createElement('div');
+        chip.className = 'sequence-chip';
+        chip.innerHTML = `<span class="chip-emoji">${GESTURES[key].emoji}</span><span class="chip-label">${GESTURES[key].label}</span>`;
+        track.appendChild(chip);
+    });
+
+    let index = 0;
+    let holdStart = null;
+
+    const showCurrent = () => {
+        track.querySelectorAll('.sequence-chip').forEach((chip, i) => {
+            chip.classList.toggle('current', i === index);
+            chip.classList.toggle('done', i < index);
+        });
+        if (index < gestureKeys.length) {
+            const gesture = GESTURES[gestureKeys[index]];
+            $('target-emotion').textContent = `${gesture.emoji} ${gesture.label}`;
+            $('challenge-rule').textContent = gesture.hint;
+            $('challenge-rule').style.display = 'block';
+        }
+    };
+    showCurrent();
+
+    const total = gestureKeys.length;
+    const label = () => `Gestos (${index}/${total})`;
+    const perGesture = 75 / total;
+
+    startGestureLoop(hands => {
+        const matched = handsShowGesture(hands, gestureKeys[index]);
+        if (!matched) {
+            holdStart = null;
+            return {};
+        }
+        if (holdStart === null) holdStart = Date.now();
+        if (Date.now() - holdStart < GESTURE_HOLD_MS) return { state: 'match' };
+
+        holdStart = null;
+        index++;
+        sfx.play('pop');
+        showCurrent();
+        if (index === total) {
+            // 25 per gesture + up to 25 time bonus
+            const points = perGesture * total + 25 * (gameState.timeRemaining / DURATION.gesture);
+            endRound({ label: label(), success: true, points, outcome: 'win', message: '🙌 Mãos de mestre!' });
+        }
+        return { state: 'match' };
+    });
+
+    startRoundTimer(DURATION.gesture, () => {
+        endRound({
+            label: label(),
+            success: false,
+            points: perGesture * index,
+            outcome: index > 0 ? 'win' : 'lose',
+            message: `⏱ ${index}/${total} gestos`
         });
     });
 }
