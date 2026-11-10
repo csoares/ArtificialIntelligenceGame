@@ -416,10 +416,7 @@ function createMenu() {
                 { role: 'reload' },
                 { role: 'forceReload' },
                 { role: 'toggleDevTools' },
-                { type: 'separator' },
-                { role: 'resetZoom' },
-                { role: 'zoomIn' },
-                { role: 'zoomOut' },
+                // No zoom items: preload.js scales the page to fit the window automatically
                 { type: 'separator' },
                 { role: 'togglefullscreen' }
             ]

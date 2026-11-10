@@ -153,10 +153,10 @@ const HAND_CONNECTIONS = [
 ];
 // Reaction = how much an expression rises above the player's own resting face (measured during
 // the 3-2-1). A raw "1 - neutral" doesn't work: resting faces are often read as 30-60% sad/angry.
-const LIE_REACTION_THRESHOLD = 0.4;   // weighted rise above the resting face that counts as a reaction
-const LIE_REACTION_HOLD_MS = 700;     // the reaction must last this long (ignores blinks/glitches)
-const LIE_SMOOTHING = 0.3;            // exponential smoothing of expressions (0-1, higher = jumpier)
-const LIE_GRACE_MS = 1000;            // time to read each question before reactions count
+const LIE_REACTION_THRESHOLD = 0.3;   // weighted rise above the resting face that counts as a reaction
+const LIE_REACTION_HOLD_MS = 300;     // the reaction must last this long (ignores single-frame glitches)
+const LIE_SMOOTHING = 0.5;            // exponential smoothing of expressions (0-1, higher = jumpier)
+const LIE_GRACE_MS = 300;             // ignore the first frames of each question (the first reaction is the one that matters)
 const LIE_CALIBRATION_MIN_FRAMES = 5; // frames needed to trust the resting-face measurement
 const LIE_BASELINE_CAP = 0.25;        // max resting value for happy/surprised (smiling at 3-2-1 isn't "resting")
 // Smiles and surprise are the typical reactions; sad/angry/disgusted are what resting faces get
@@ -164,10 +164,10 @@ const LIE_BASELINE_CAP = 0.25;        // max resting value for happy/surprised (
 const LIE_REACTION_WEIGHTS = {
     happy: 1,
     surprised: 1,
-    fearful: 0.8,
-    angry: 0.6,
-    sad: 0.6,
-    disgusted: 0.6
+    fearful: 0.6,
+    angry: 0.4,
+    sad: 0.4,
+    disgusted: 0.4
 };
 const LIE_MIN_FACE_RATIO = 0.5;       // a question only counts if the face was visible in >= 50% of frames
 
@@ -472,6 +472,13 @@ function createGamePlan() {
     const codeQuestions = shuffleArray(QUIZ_QUESTIONS.filter(q => q.code));
     const tricks = shuffleArray(TRICK_CHALLENGES);
 
+    // Emotion rounds never repeat an emotion, nor one that an "Engana a IA" round of this game asks for
+    const trickCount = GAME_PLAN.filter(t => t === ROUND_TYPES.TRICK).length;
+    const trickTargets = tricks.slice(-trickCount).map(t => t.target);
+    const freshEmotions = shuffleArray(EMOTIONS.filter(e => !trickTargets.includes(e)));
+    const emotionPool = [...freshEmotions, ...shuffleArray(EMOTIONS)]; // fallback if the plan has many emotion rounds
+    const emotionRound = () => ({ type: ROUND_TYPES.EMOTION, target: emotionPool.shift() });
+
     const quizCount = GAME_PLAN.filter(t => t === ROUND_TYPES.QUIZ).length;
     let quizSeen = 0;
 
@@ -482,7 +489,7 @@ function createGamePlan() {
 
     return GAME_PLAN.map(type => {
         if (type === ROUND_TYPES.GESTURE) {
-            if (!gestureEngine.recognizer) return { type: ROUND_TYPES.EMOTION }; // no hand tracking: fall back
+            if (!gestureEngine.recognizer) return emotionRound(); // no hand tracking: fall back
             const first = mustHave[gestureRound++] || singles.pop();
             const gestures = [first, ...singles.splice(0, GESTURES_PER_ROUND - 1)];
             return { type, gestures: shuffleArray(gestures) };
@@ -495,6 +502,7 @@ function createGamePlan() {
         if (type === ROUND_TYPES.TRICK) {
             return { type, trick: tricks.pop() };
         }
+        if (type === ROUND_TYPES.EMOTION) return emotionRound();
         return { type };
     }).map((round, i, plan) => {
         if (round.type === ROUND_TYPES.LIE) {
@@ -585,7 +593,7 @@ function showCameraStage() {
 
 function showQuizStage() {
     $('camera-stage').style.display = 'none';
-    $('quiz-container').style.display = 'block';
+    $('quiz-container').style.display = 'flex';
 }
 
 // ===================================
@@ -771,7 +779,7 @@ function nextRound() {
 function startRoundOfType(roundConfig) {
     switch (roundConfig.type) {
         case ROUND_TYPES.EMOTION:
-            startEmotionRound();
+            startEmotionRound(roundConfig.target);
             break;
         case ROUND_TYPES.TRICK:
             startTrickRound(roundConfig.trick);
@@ -1187,9 +1195,10 @@ function pickEmotion(pool) {
 // ROUND: MOSTRA A EMOÇÃO / ENGANA A IA
 // ===================================
 
-function startEmotionRound() {
+function startEmotionRound(target) {
+    gameState.lastEmotion = target;
     runHoldEmotionRound({
-        target: pickEmotion(EMOTIONS),
+        target: target || pickEmotion(EMOTIONS),
         title: 'Mostra esta emoção:',
         note: 'A IA está a analisar 68 pontos no teu rosto!',
         duration: DURATION.emotion,
@@ -1247,11 +1256,11 @@ function runHoldEmotionRound({ target, title, rule, note, duration, type }) {
 function startSequenceRound() {
     showCameraStage();
 
-    // Build a sequence with no consecutive repeats
+    // Each emotion at most once (repeats only if SEQUENCE_LENGTH is longer than the list)
     const sequence = [];
     while (sequence.length < SEQUENCE_LENGTH) {
-        const options = SEQUENCE_EMOTIONS.filter(e => e !== sequence[sequence.length - 1]);
-        sequence.push(pickRandom(options));
+        const next = shuffleArray(SEQUENCE_EMOTIONS).filter(e => e !== sequence[sequence.length - 1]);
+        sequence.push(...next.slice(0, SEQUENCE_LENGTH - sequence.length));
     }
 
     $('challenge-title').textContent = `Faz as ${SEQUENCE_LENGTH} emoções o mais rápido possível!`;
