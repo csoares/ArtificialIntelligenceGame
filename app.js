@@ -111,6 +111,12 @@ const ROUND_RESULT_MS = 2600;         // how long the end-of-round feedback stay
 
 const MAX_POINTS_PER_ROUND = 100;
 const MAX_POINTS = GAME_PLAN.length * MAX_POINTS_PER_ROUND;
+const FINAL_SCALE = 5; // the final score is an integer from 0 to FINAL_SCALE
+
+// Final score on the 0-5 scale (whole number), from the points earned in the rounds
+function finalScore(points = gameState.score) {
+    return Math.round((points / MAX_POINTS) * FINAL_SCALE);
+}
 
 // Detection tuning
 const DETECTION_INTERVAL_MS = 80;     // pause between detections
@@ -1869,8 +1875,9 @@ function endGame() {
     const fullName = `${gameState.student.firstName} ${gameState.student.lastName}`.trim();
     $('student-name').textContent = fullName;
     $('student-school').textContent = gameState.student.school;
-    $('final-score').textContent = gameState.score;
-    $('score-max').textContent = `/ ${MAX_POINTS}`;
+    $('final-score').textContent = finalScore();
+    $('score-max').textContent = `/ ${FINAL_SCALE}`;
+    $('score-points').textContent = `${gameState.score} de ${MAX_POINTS} pontos`;
     $('score-message').textContent = getScoreMessage(gameState.score / MAX_POINTS);
 
     const roundResultsDiv = $('round-results');
@@ -1888,8 +1895,7 @@ function endGame() {
 
     showRankingEntry();
 
-    // Backend CSV keeps the original 0-5 scale
-    saveResultToBackend(Math.round((gameState.score / MAX_POINTS) * 5));
+    saveResultToBackend(finalScore());
 
     // In normal mode, stop the camera; in kiosk mode keep it running for the next game
     if (!isKioskMode()) {
@@ -2023,7 +2029,7 @@ function setSaveNotice(text, color) {
     notice.style.color = color;
 }
 
-async function saveResultToBackend(finalScore) {
+async function saveResultToBackend(score) {
     // The Electron build has no server; results are exported from the menu instead
     if (window.electronAPI) return;
 
@@ -2031,7 +2037,7 @@ async function saveResultToBackend(finalScore) {
         firstName: gameState.student.firstName,
         lastName: gameState.student.lastName || '-',
         school: gameState.student.school,
-        score: finalScore,
+        score,
         timestamp: new Date().toISOString()
     };
 
@@ -2091,7 +2097,8 @@ function generateCSVContent() {
         ].map(escape).join(',') + '\n';
     });
 
-    csv += `\nPontuação total: ${gameState.score}/${MAX_POINTS}\n`;
+    csv += `\nPontuação final: ${finalScore()}/${FINAL_SCALE}\n`;
+    csv += `Pontos: ${gameState.score}/${MAX_POINTS}\n`;
     return csv;
 }
 
